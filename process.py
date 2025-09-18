@@ -11,6 +11,8 @@ from matplotlib import colors
 import time
 from threading import Thread
 
+#create dir for results
+os.makedirs("index_yesterday", exist_ok=True)
 time_total = time.time()
 time_start = time.time()
 domain_high = 699
