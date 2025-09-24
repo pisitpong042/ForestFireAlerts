@@ -45,20 +45,23 @@ except Exception:
 
 CLASS_LABELS = np.array(["Low","Moderate","High","Very High","Extreme"])
 CLASS_COLORS = ['blue','green','yellow','red','brown']
+FFMC_BOUNDS = [-1e9, 87, 90, 93, 98, 1e9]
+ISI_BOUNDS  = [-1e9,  7, 14, 20, 32, 1e9]
 FWI_BOUNDS = [ -1e9, 17, 31, 40, 54,  1e9 ]
 DC_BOUNDS  = [ -1e9, 256.1, 334.1, 450.6, 600, 1e9 ]
 DMC_BOUNDS = [ -1e9, 15.7, 27.9, 53.1, 83.6, 1e9 ]
 BUI_BOUNDS = [ -1e9, 24.2, 40.7, 73.3, 133.1, 1e9 ]
 
-def classify(arr2d, bounds):
+def classify(arr, bounds):
+    arr = np.asarray(arr)                     # 1-D (n,)
     bins = bounds[1:-1]
-    idx = np.empty_like(arr2d, dtype=int)
-    mask = ~np.isnan(arr2d)
-    idx[~mask] = -1
-    idx[mask] = np.digitize(arr2d[mask], bins, right=True)  # <= upper bound
-    labels = np.full(arr2d.shape, "NA", dtype=object)
+    idx = np.full(arr.shape, -1, dtype=int)
+    mask = ~np.isnan(arr)
+    idx[mask] = np.digitize(arr[mask], bins, right=True)  # <= upper bound in each bin
+    labels = np.full(arr.shape, "NA", dtype=object)
     labels[mask] = CLASS_LABELS[idx[mask]]
     return idx, labels
+
 
 # Globals for the grid fields (populated by read_nc)
 GB_Lat = GB_Lon = None
@@ -212,16 +215,21 @@ def sample_to_subdistricts(geo_pkg_path):
 
     def pick(A): return A[rr, cc]
 
+    gdf["FFMC"] = pick(GB_ffmc)
+    gdf["ISI"]  = pick(GB_isi)
+
     gdf["FWI"] = pick(GB_fwi)
     gdf["DC"]  = pick(GB_dc)
     gdf["DMC"] = pick(GB_dmc)
     gdf["BUI"] = pick(GB_bui)
 
     # Classify to labels
-    gdf["FWI_CAT_IDX"], gdf["FWI_CAT"] = classify(gdf["FWI"].to_numpy()[:, None], FWI_BOUNDS)
-    gdf["DC_CAT_IDX"],  gdf["DC_CAT"]  = classify(gdf["DC"].to_numpy()[:, None],  DC_BOUNDS)
-    gdf["DMC_CAT_IDX"], gdf["DMC_CAT"] = classify(gdf["DMC"].to_numpy()[:, None], DMC_BOUNDS)
-    gdf["BUI_CAT_IDX"], gdf["BUI_CAT"] = classify(gdf["BUI"].to_numpy()[:, None], BUI_BOUNDS)
+    gdf["FFMC_CAT_IDX"], gdf["FFMC_CAT"] = classify(gdf["FFMC"].to_numpy(), FFMC_BOUNDS)
+    gdf["ISI_CAT_IDX"],  gdf["ISI_CAT"]  = classify(gdf["ISI"].to_numpy(),  ISI_BOUNDS)
+    gdf["FWI_CAT_IDX"], gdf["FWI_CAT"] = classify(gdf["FWI"].to_numpy(), FWI_BOUNDS)
+    gdf["DC_CAT_IDX"],  gdf["DC_CAT"]  = classify(gdf["DC"].to_numpy(),  DC_BOUNDS)
+    gdf["DMC_CAT_IDX"], gdf["DMC_CAT"] = classify(gdf["DMC"].to_numpy(), DMC_BOUNDS)
+    gdf["BUI_CAT_IDX"], gdf["BUI_CAT"] = classify(gdf["BUI"].to_numpy(), BUI_BOUNDS)
 
     for col in ["FWI_CAT_IDX","DC_CAT_IDX","DMC_CAT_IDX","BUI_CAT_IDX","FWI_CAT","DC_CAT","DMC_CAT","BUI_CAT"]:
         gdf[col] = gdf[col].apply(lambda x: x if np.isscalar(x) else np.array(x).item())
@@ -232,6 +240,8 @@ def build_app(gdf):
     app = dash.Dash(__name__)
     geojson = json.loads(gdf.to_crs(4326).to_json())
     metric_options = [
+        {"label":"FFMC (Fine Fuel Moisture Code)","value":"FFMC"},
+        {"label":"ISI (Initial Spread Index)","value":"ISI"},
         {"label":"FWI (Fire Weather Index)","value":"FWI"},
         {"label":"DC (Drought Code)","value":"DC"},
         {"label":"DMC (Duff Moisture Code)","value":"DMC"},
