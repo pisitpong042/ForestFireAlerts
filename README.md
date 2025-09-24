@@ -14,5 +14,5 @@ layout
 - GADM: gadm41_THA.gpkg with ADM_1/2/3 layers. 
   - Store locally and point --gpkg to the path
 
-**Check libralies compatability**
+**Check libraries compatability**
 
