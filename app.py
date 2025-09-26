@@ -7,9 +7,8 @@
 # - classifies with TFDRS/GWIS thresholds (fixed)
 # - samples to GADM ADM_1 / ADM_2 / ADM_3 (centroid→nearest cell)
 # - interactive Dash map with metric + admin level switchers
+# - custom legend panel lists ALL classes + numeric thresholds (always visible)
 # -----------------------------------------------------------------------------
-
-from __future__ import annotations
 
 import os, json, time, argparse
 from threading import Thread
@@ -30,26 +29,40 @@ except Exception:
 
 # --------------------------  FWI library  ------------------------------------
 try:
-    from fwi import bui as fwi_bui, dc as fwi_dc, dmc as fwi_dmc, isi as fwi_isi, ffmc as fwi_ffmc, fwi as fwi_fwi
+    from fwi import (
+        bui as fwi_bui,
+        dc as fwi_dc,
+        dmc as fwi_dmc,
+        isi as fwi_isi,
+        ffmc as fwi_ffmc,
+        fwi as fwi_fwi,
+    )
     HAVE_FWI_LIB = True
 except Exception:
     HAVE_FWI_LIB = False
+
     def fwi_ffmc(ffmc_yda, t, rh, ws_kmh, prec):
         return max(0.0, 100 * np.exp(-0.005 * rh) + 0.1 * (t - 15) + 0.01 * ws_kmh - 0.2 * prec)
+
     def fwi_dmc(dmc_yda, t, rh, prec, lat, mon):
         return max(0.0, dmc_yda + 0.5 * (t - 10) - 0.3 * prec - 0.2 * (rh - 50))
+
     def fwi_dc(dc_yda, t, rh, prec, lat, mon):
         return max(0.0, dc_yda + 0.2 * (t - 10) - 0.1 * prec - 0.05 * (rh - 50))
+
     def fwi_isi(ffmc, ws_kmh, use_new=True):
         return max(0.0, 0.1 * ffmc + 0.05 * ws_kmh)
+
     def fwi_bui(dmc, dc):
         return max(0.0, 0.5 * dmc + 0.5 * dc)
+
     def fwi_fwi(isi, bui):
         return max(0.0, 0.4 * isi + 0.6 * bui)
 
 # -----------------------  Classification  ------------------------------------
 CLASS_LABELS = np.array(["Low", "Moderate", "High", "Very High", "Extreme"])
-CLASS_COLORS = ['blue', 'green', 'yellow', 'red', 'brown']   # keep order
+CLASS_COLORS = ["blue", "green", "yellow", "red", "brown"]  # keep order
+CLASS_SEQ = ["Low", "Moderate", "High", "Very High", "Extreme"]
 
 FFMC_BOUNDS = [-1e9, 87, 90, 93, 98, 1e9]
 ISI_BOUNDS  = [-1e9,  7, 14, 20, 32, 1e9]
@@ -57,6 +70,15 @@ FWI_BOUNDS  = [-1e9, 17, 31, 40, 54, 1e9]
 DC_BOUNDS   = [-1e9, 256.1, 334.1, 450.6, 600, 1e9]
 DMC_BOUNDS  = [-1e9, 15.7, 27.9, 53.1, 83.6, 1e9]
 BUI_BOUNDS  = [-1e9, 24.2, 40.7, 73.3, 133.1, 1e9]
+
+BOUNDS_BY_METRIC = {
+    "FWI":  FWI_BOUNDS,
+    "DC":   DC_BOUNDS,
+    "DMC":  DMC_BOUNDS,
+    "BUI":  BUI_BOUNDS,
+    "FFMC": FFMC_BOUNDS,
+    "ISI":  ISI_BOUNDS,
+}
 
 def classify(arr, bounds):
     """Return (class_index, class_label) for a 1-D array using right-inclusive bins."""
@@ -68,6 +90,27 @@ def classify(arr, bounds):
     labels = np.full(arr.shape, "NA", dtype=object)
     labels[mask] = CLASS_LABELS[idx[mask]]
     return idx, labels
+
+def _fmt(v: float) -> str:
+    """Pretty number for legend ranges."""
+    if abs(v - round(v)) < 1e-6:
+        return str(int(round(v)))
+    s = f"{v:.1f}".rstrip("0").rstrip(".")
+    return s
+
+def bounds_to_rows(bounds):
+    """
+    Convert [-inf, a, b, c, d, +inf] to human ranges (right-inclusive):
+    Low: ≤ a ; Moderate: > a – b ; High: > b – c ; Very High: > c – d ; Extreme: > d
+    """
+    a, b, c, d = bounds[1:-1]
+    return [
+        ("Low",        f"≤ {_fmt(a)}"),
+        ("Moderate",   f"> {_fmt(a)} – {_fmt(b)}"),
+        ("High",       f"> {_fmt(b)} – {_fmt(c)}"),
+        ("Very High",  f"> {_fmt(c)} – {_fmt(d)}"),
+        ("Extreme",    f"> {_fmt(d)}"),
+    ]
 
 # --------------------------  Grid globals  -----------------------------------
 GB_Lat = GB_Lon = None
@@ -93,7 +136,7 @@ def read_nc(yesterday_nc_file, today_nc_file, noon_index=6):
 
     # Yesterday: accumulate precip from 14:00 UTC onwards
     y_nc = netCDF4.Dataset(yesterday_nc_file)
-    precip_hr_y = y_nc.variables['precip_hr']   # (time, south_north, west_east)
+    precip_hr_y = y_nc.variables["precip_hr"]   # (time, south_north, west_east)
     GB_precip_24hr = np.array(precip_hr_y[7, :, :])
     for t in range(8, 24):
         GB_precip_24hr += precip_hr_y[t, :, :]
@@ -101,13 +144,13 @@ def read_nc(yesterday_nc_file, today_nc_file, noon_index=6):
 
     # Today: noon met + add morning precip 07:00..noon
     t_nc = netCDF4.Dataset(today_nc_file)
-    lat = t_nc.variables['lat']
-    lon = t_nc.variables['lon']
-    t_2m = t_nc.variables['T_2m']
-    rh_2m = t_nc.variables['rh_2m']
-    precip_hr_t = t_nc.variables['precip_hr']
-    u_10m_gr = t_nc.variables['u_10m_gr']
-    v_10m_gr = t_nc.variables['v_10m_gr']
+    lat = t_nc.variables["lat"]
+    lon = t_nc.variables["lon"]
+    t_2m = t_nc.variables["T_2m"]
+    rh_2m = t_nc.variables["rh_2m"]
+    precip_hr_t = t_nc.variables["precip_hr"]
+    u_10m_gr = t_nc.variables["u_10m_gr"]
+    v_10m_gr = t_nc.variables["v_10m_gr"]
 
     GB_Lat = np.array(lat[:])
     GB_Lon = np.array(lon[:])
@@ -136,11 +179,13 @@ def cal_ffmc():
     sn, we = GB_ffmc.shape
     for r in range(sn):
         for c in range(we):
-            GB_ffmc[r, c] = fwi_ffmc(GB_ffmc_yda[r, c],
-                                     float(GB_Temp_noon[r, c]),
-                                     float(GB_Rh_noon[r, c]),
-                                     float(GB_Wsp_noon[r, c]),
-                                     float(GB_precip_24hr[r, c]))
+            GB_ffmc[r, c] = fwi_ffmc(
+                GB_ffmc_yda[r, c],
+                float(GB_Temp_noon[r, c]),
+                float(GB_Rh_noon[r, c]),
+                float(GB_Wsp_noon[r, c]),
+                float(GB_precip_24hr[r, c]),
+            )
     _time("FFMC")
 
 def cal_isi():
@@ -156,10 +201,13 @@ def cal_dmc():
     sn, we = GB_dmc.shape
     for r in range(sn):
         for c in range(we):
-            GB_dmc[r, c] = fwi_dmc(GB_dmc_yda[r, c],
-                                   float(GB_Temp_noon[r, c]),
-                                   float(GB_Rh_noon[r, c]),
-                                   float(GB_precip_24hr[r, c]), 15, 1)
+            GB_dmc[r, c] = fwi_dmc(
+                GB_dmc_yda[r, c],
+                float(GB_Temp_noon[r, c]),
+                float(GB_Rh_noon[r, c]),
+                float(GB_precip_24hr[r, c]),
+                15, 1,
+            )
     _time("DMC")
 
 def cal_dc():
@@ -167,10 +215,13 @@ def cal_dc():
     sn, we = GB_dc.shape
     for r in range(sn):
         for c in range(we):
-            GB_dc[r, c] = fwi_dc(GB_dc_yda[r, c],
-                                 float(GB_Temp_noon[r, c]),
-                                 float(GB_Rh_noon[r, c]),
-                                 float(GB_precip_24hr[r, c]), 15, 1)
+            GB_dc[r, c] = fwi_dc(
+                GB_dc_yda[r, c],
+                float(GB_Temp_noon[r, c]),
+                float(GB_Rh_noon[r, c]),
+                float(GB_precip_24hr[r, c]),
+                15, 1,
+            )
     _time("DC")
 
 def cal_bui():
@@ -290,21 +341,49 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
         html.Div([
             html.Span("Level: ", style={"marginRight":"8px"}),
             dcc.RadioItems(
-                id="admin", inline=True, value=3,
-                options=[{"label":"Province","value":1},
-                         {"label":"District","value":2},
-                         {"label":"Sub-district","value":3}],
+                id="admin",
+                value=3,
+                options=[
+                    {"label":"Province","value":1},
+                    {"label":"District","value":2},
+                    {"label":"Sub-district","value":3},
+                ],
+                labelStyle={"display":"inline-block","marginRight":"12px"},
             ),
         ], style={"margin":"6px 0 12px"}),
 
         dcc.Dropdown(id="metric", options=metric_options, value="FWI", clearable=False),
-        dcc.Graph(id="map", style={"height":"85vh"}),
+
+        # Graph + custom legend overlay
+        html.Div([
+            dcc.Graph(id="map", style={"height":"85vh"}),
+            html.Div(
+                id="legend-box",
+                style={
+                    "position":"absolute","top":"70px","right":"20px",
+                    "backgroundColor":"rgba(255,255,255,0.95)",
+                    "padding":"10px 12px","borderRadius":"8px",
+                    "boxShadow":"0 2px 8px rgba(0,0,0,0.15)",
+                    "fontSize":"13px","lineHeight":"1.2",
+                },
+            ),
+        ], style={"position":"relative"}),
     ])
 
-    COLOR_MAP = {"Low":CLASS_COLORS[0], "Moderate":CLASS_COLORS[1],
-                 "High":CLASS_COLORS[2], "Very High":CLASS_COLORS[3], "Extreme":CLASS_COLORS[4]}
+    COLOR_MAP = {
+        "Low": CLASS_COLORS[0],
+        "Moderate": CLASS_COLORS[1],
+        "High": CLASS_COLORS[2],
+        "Very High": CLASS_COLORS[3],
+        "Extreme": CLASS_COLORS[4],
+    }
 
-    @app.callback(Output("map","figure"), Input("metric","value"), Input("admin","value"))
+    @app.callback(
+        Output("map","figure"),
+        Output("legend-box","children"),
+        Input("metric","value"),
+        Input("admin","value"),
+    )
     def update_map(metric, admin_level):
         gdf = gdfs_by_level[int(admin_level)]
         gj  = geojson_by_level[int(admin_level)]
@@ -316,23 +395,46 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
             locations="GID", featureidkey="properties.GID",
             color=cat_col,
             color_discrete_map=COLOR_MAP,
-            category_orders={cat_col:["Low","Moderate","High","Very High","Extreme"]},
+            category_orders={cat_col: CLASS_SEQ},
             mapbox_style="open-street-map",
             center={"lat":15.0,"lon":101.0}, zoom=5, opacity=0.75,
             hover_name="NAME",
-            hover_data={val_col:":.2f"}
+            hover_data={val_col:":.2f"},
         )
-        fig.update_layout(margin=dict(l=0,r=0,t=0,b=0),
-                          legend_title_text="Fire Risk Level",
-                          title=f"Thailand Fire Danger ({ {1:'Province',2:'District',3:'Sub-district'}[int(admin_level)] })")
-        return fig
+        # Hide Plotly legend; our custom legend shows classes + thresholds
+        fig.update_layout(
+            margin=dict(l=0,r=0,t=0,b=0),
+            showlegend=False,
+            title=f"Thailand Fire Danger ({ {1:'Province',2:'District',3:'Sub-district'}[int(admin_level)] })",
+        )
+
+        # Build the custom legend for the selected metric
+        rows = bounds_to_rows(BOUNDS_BY_METRIC[metric])
+        legend_children = [
+            html.Div([
+                html.Strong(f"{metric} thresholds"),
+                html.Div([
+                    html.Div([
+                        html.Span(style={
+                            "display":"inline-block","width":"12px","height":"12px",
+                            "backgroundColor": COLOR_MAP[label],
+                            "marginRight":"8px","border":"1px solid #999",
+                        }),
+                        html.Span(f"{label}: {rng}"),
+                    ], style={"margin":"4px 0"})
+                    for (label, rng) in rows
+                ]),
+            ])
+        ]
+
+        return fig, legend_children
 
     return app
 
 # --------------------------  Files & CLI  ------------------------------------
 def find_two_latest_nc(data_dir: str):
     """Keep original behavior: look for files that end with 'd03.nc' in data_dir."""
-    files = [f for f in os.listdir(data_dir) if f.endswith('d03.nc')]
+    files = [f for f in os.listdir(data_dir) if f.endswith("d03.nc")]
     if not files:
         raise FileNotFoundError("No *_d03.nc files found in --data-dir")
     files = sorted(files, key=lambda f: os.path.getmtime(os.path.join(data_dir, f)))
@@ -343,13 +445,13 @@ def find_two_latest_nc(data_dir: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Thailand Fire Danger Dash App")
-    parser.add_argument('--data-dir', default='.', help='Directory containing *_d03.nc files (unchanged)')
-    parser.add_argument('--gpkg', default='gadm41_THA.gpkg', help='Path to GADM 4.1 GeoPackage')
-    parser.add_argument('--noon-index', type=int, default=6, help='Time index for noon extraction (default 6 = 12:00 UTC)')
-    parser.add_argument('--auto-download', action='store_true',
-                        help='If set, fetch latest two *_00UTC_d03.nc into --data-dir (no change to structure)')
-    parser.add_argument('--host', default='127.0.0.1'); parser.add_argument('--port', type=int, default=8050)
-    parser.add_argument('--debug', action='store_true')
+    parser.add_argument("--data-dir", default=".", help="Directory containing *_d03.nc files (unchanged)")
+    parser.add_argument("--gpkg", default="gadm41_THA.gpkg", help="Path to GADM 4.1 GeoPackage")
+    parser.add_argument("--noon-index", type=int, default=6, help="Time index for noon extraction (default 6 = 12:00 UTC)")
+    parser.add_argument("--auto-download", action="store_true",
+                        help="If set, fetch latest two *_00UTC_d03.nc into --data-dir (no change to structure)")
+    parser.add_argument("--host", default="127.0.0.1"); parser.add_argument("--port", type=int, default=8050)
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
     if args.auto_download and HAVE_DOWNLOADER:
@@ -361,7 +463,7 @@ def main():
 
     read_nc(y_nc, t_nc, noon_index=args.noon_index)
 
-    # Compute indices (simple sequential; threads retained for parity)
+    # Compute indices (sequential; threads retained for parity with earlier code)
     for fn in [cal_ffmc, cal_isi, cal_dmc, cal_dc, cal_bui, cal_fwi]:
         th = Thread(target=fn); th.start(); th.join()
 
@@ -372,6 +474,5 @@ def main():
     app = build_app(gdfs, geojson_by_level)
     app.run(host=args.host, port=args.port, debug=args.debug)
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
