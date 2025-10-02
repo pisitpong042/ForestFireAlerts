@@ -336,38 +336,44 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
     ]
 
     app.layout = html.Div([
-        html.H3("Thailand Fire Danger", style={"textAlign":"center"}),
+        html.H3("Thailand Fire Danger", style={"textAlign": "center"}),
 
         html.Div([
-            html.Span("Level: ", style={"marginRight":"8px"}),
+            html.Span("Level: ", style={"marginRight": "8px"}),
             dcc.RadioItems(
                 id="admin",
                 value=3,
                 options=[
-                    {"label":"Province","value":1},
-                    {"label":"District","value":2},
-                    {"label":"Sub-district","value":3},
+                    {"label": "Province", "value": 1},
+                    {"label": "District", "value": 2},
+                    {"label": "Sub-district", "value": 3},
                 ],
-                labelStyle={"display":"inline-block","marginRight":"12px"},
+                labelStyle={"display": "inline-block", "marginRight": "12px"},
             ),
-        ], style={"margin":"6px 0 12px"}),
+        ], style={"margin": "6px 0 12px"}),
 
         dcc.Dropdown(id="metric", options=metric_options, value="FWI", clearable=False),
 
-        # Graph + custom legend overlay
-        html.Div([
-            dcc.Graph(id="map", style={"height":"85vh"}),
-            html.Div(
-                id="legend-box",
-                style={
-                    "position":"absolute","top":"70px","right":"20px",
-                    "backgroundColor":"rgba(255,255,255,0.95)",
-                    "padding":"10px 12px","borderRadius":"8px",
-                    "boxShadow":"0 2px 8px rgba(0,0,0,0.15)",
-                    "fontSize":"13px","lineHeight":"1.2",
-                },
-            ),
-        ], style={"position":"relative"}),
+        # Add a loading spinner for the map and legend
+        dcc.Loading(
+            id="loading-spinner",
+            type="circle",  # You can use "circle", "dot", or "default"
+            children=[
+                html.Div([
+                    dcc.Graph(id="map", style={"height": "85vh"}),
+                    html.Div(
+                        id="legend-box",
+                        style={
+                            "position": "absolute", "top": "70px", "right": "20px",
+                            "backgroundColor": "rgba(255,255,255,0.95)",
+                            "padding": "10px 12px", "borderRadius": "8px",
+                            "boxShadow": "0 2px 8px rgba(0,0,0,0.15)",
+                            "fontSize": "13px", "lineHeight": "1.2",
+                        },
+                    ),
+                ], style={"position": "relative"}),
+            ],
+        ),
     ])
 
     COLOR_MAP = {
