@@ -323,7 +323,8 @@ def sample_to_admin(geo_pkg_path: str, level: int) -> gpd.GeoDataFrame:
 
 # --------------------------  Dash app  ---------------------------------------
 def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
-              geojson_by_level: dict[int, dict]) -> dash.Dash:
+              geojson_by_level: dict[int, dict],
+              latest_nc_file: str) -> dash.Dash:
     app = dash.Dash(__name__)
 
     metric_options = [
@@ -336,7 +337,7 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
     ]
 
     app.layout = html.Div([
-        html.H3("Thailand Fire Danger", style={"textAlign": "center"}),
+        html.H3(f"Thailand Fire Danger - Latest Data: {latest_nc_file}", style={"textAlign": "center"}),
 
         html.Div([
             html.Span("Level: ", style={"marginRight": "8px"}),
@@ -477,7 +478,8 @@ def main():
     gdfs = {lvl: sample_to_admin(args.gpkg, lvl) for lvl in (1, 2, 3)}
     geojson_by_level = {lvl: json.loads(df.to_crs(4326).to_json()) for (lvl, df) in gdfs.items()}
 
-    app = build_app(gdfs, geojson_by_level)
+    # Pass the latest NetCDF file name to the app
+    app = build_app(gdfs, geojson_by_level, latest_nc_file=os.path.basename(t_nc))
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 if __name__ == "__main__":
