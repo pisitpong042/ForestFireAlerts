@@ -18,7 +18,9 @@ import geopandas as gpd
 import plotly.express as px
 import dash
 from dash import dcc, html
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
+from flask import Flask
 
 # Optional: downloader (works if download_d03.py exposes fetch_latest_two)
 try:
@@ -322,22 +324,32 @@ def sample_to_admin(geo_pkg_path: str, level: int) -> gpd.GeoDataFrame:
     return _sample_grid_to_gdf(layer)
 
 # --------------------------  Dash app  ---------------------------------------
+# Add an interval component for periodic updates
 def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
               geojson_by_level: dict[int, dict],
-              latest_nc_file: str) -> dash.Dash:
+              latest_nc_file: str,
+              data_dir: str,
+              gpkg_path: str,
+              noon_index: int) -> dash.Dash:
     app = dash.Dash(__name__)
+    server = app.server  # Flask server for deployment
 
     metric_options = [
-        {"label":"FWI (Fire Weather Index)","value":"FWI"},
-        {"label":"DC (Drought Code)","value":"DC"},
-        {"label":"DMC (Duff Moisture Code)","value":"DMC"},
-        {"label":"BUI (Build-Up Index)","value":"BUI"},
-        {"label":"FFMC (Fine Fuel Moisture)","value":"FFMC"},
-        {"label":"ISI (Initial Spread Index)","value":"ISI"},
+        {"label": "FWI (Fire Weather Index)", "value": "FWI"},
+        {"label": "DC (Drought Code)", "value": "DC"},
+        {"label": "DMC (Duff Moisture Code)", "value": "DMC"},
+        {"label": "BUI (Build-Up Index)", "value": "BUI"},
+        {"label": "FFMC (Fine Fuel Moisture)", "value": "FFMC"},
+        {"label": "ISI (Initial Spread Index)", "value": "ISI"},
     ]
 
     app.layout = html.Div([
-        html.H3(f"Thailand Fire Danger - Latest Data: {latest_nc_file}", style={"textAlign": "center"}),
+        dcc.Interval(
+            id="update-interval",
+            interval=5 * 60 * 1000,  # Check every 5 minutes (in milliseconds)
+            n_intervals=0
+        ),
+        html.H3(f"Thailand Fire Danger - Latest Data: {latest_nc_file}", id="headline", style={"textAlign": "center"}),
 
         html.Div([
             html.Span("Level: ", style={"marginRight": "8px"}),
@@ -355,10 +367,9 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
 
         dcc.Dropdown(id="metric", options=metric_options, value="FWI", clearable=False),
 
-        # Add a loading spinner for the map and legend
         dcc.Loading(
             id="loading-spinner",
-            type="circle",  # You can use "circle", "dot", or "default"
+            type="circle",
             children=[
                 html.Div([
                     dcc.Graph(id="map", style={"height": "85vh"}),
@@ -367,9 +378,11 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
                         style={
                             "position": "absolute", "top": "70px", "right": "20px",
                             "backgroundColor": "rgba(255,255,255,0.95)",
-                            "padding": "10px 12px", "borderRadius": "8px",
+                            "padding": "10px 12px",
+                            "borderRadius": "8px",
                             "boxShadow": "0 2px 8px rgba(0,0,0,0.15)",
-                            "fontSize": "13px", "lineHeight": "1.2",
+                            "fontSize": "13px",
+                            "lineHeight": "1.2",
                         },
                     ),
                 ], style={"position": "relative"}),
@@ -386,15 +399,16 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
     }
 
     @app.callback(
-        Output("map","figure"),
-        Output("legend-box","children"),
-        Input("metric","value"),
-        Input("admin","value"),
+        Output("map", "figure"),
+        Output("legend-box", "children"),
+        Input("metric", "value"),
+        Input("admin", "value"),
     )
     def update_map(metric, admin_level):
         gdf = gdfs_by_level[int(admin_level)]
-        gj  = geojson_by_level[int(admin_level)]
-        cat_col = f"{metric}_CAT"; val_col = metric
+        gj = geojson_by_level[int(admin_level)]
+        cat_col = f"{metric}_CAT"
+        val_col = metric
 
         fig = px.choropleth_mapbox(
             gdf,
@@ -404,18 +418,16 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
             color_discrete_map=COLOR_MAP,
             category_orders={cat_col: CLASS_SEQ},
             mapbox_style="open-street-map",
-            center={"lat":15.0,"lon":101.0}, zoom=5, opacity=0.75,
+            center={"lat": 15.0, "lon": 101.0}, zoom=5, opacity=0.75,
             hover_name="NAME",
-            hover_data={val_col:":.2f"},
+            hover_data={val_col: ":.2f"},
         )
-        # Hide Plotly legend; our custom legend shows classes + thresholds
         fig.update_layout(
-            margin=dict(l=0,r=0,t=0,b=0),
+            margin=dict(l=0, r=0, t=0, b=0),
             showlegend=False,
-            title=f"Thailand Fire Danger ({ {1:'Province',2:'District',3:'Sub-district'}[int(admin_level)] })",
+            title=f"Thailand Fire Danger ({ {1: 'Province', 2: 'District', 3: 'Sub-district'}[int(admin_level)] })",
         )
 
-        # Build the custom legend for the selected metric
         rows = bounds_to_rows(BOUNDS_BY_METRIC[metric])
         legend_children = [
             html.Div([
@@ -423,18 +435,43 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
                 html.Div([
                     html.Div([
                         html.Span(style={
-                            "display":"inline-block","width":"12px","height":"12px",
+                            "display": "inline-block", "width": "12px", "height": "12px",
                             "backgroundColor": COLOR_MAP[label],
-                            "marginRight":"8px","border":"1px solid #999",
+                            "marginRight": "8px", "border": "1px solid #999",
                         }),
                         html.Span(f"{label}: {rng}"),
-                    ], style={"margin":"4px 0"})
+                    ], style={"margin": "4px 0"})
                     for (label, rng) in rows
                 ]),
             ])
         ]
 
         return fig, legend_children
+
+    @app.callback(
+        Output("headline", "children"),
+        Input("update-interval", "n_intervals"),
+        State("headline", "children"),
+    )
+    def check_for_updates(n_intervals, current_headline):
+        """Periodically check for updates to the latest NetCDF file."""
+        try:
+            if HAVE_DOWNLOADER:
+                fetch_latest_two(data_dir)
+            y_nc_new, t_nc_new = find_two_latest_nc(data_dir)
+            if os.path.basename(t_nc_new) not in current_headline:
+                print(f"New NetCDF file detected: {t_nc_new}")
+                read_nc(y_nc_new, t_nc_new, noon_index=noon_index)
+
+                # Update global variables for admin levels
+                nonlocal gdfs_by_level, geojson_by_level
+                gdfs_by_level = {lvl: sample_to_admin(gpkg_path, lvl) for lvl in (1, 2, 3)}
+                geojson_by_level = {lvl: json.loads(df.to_crs(4326).to_json()) for (lvl, df) in gdfs_by_level.items()}
+
+                return f"Thailand Fire Danger - Latest Data: {os.path.basename(t_nc_new)}"
+        except Exception as e:
+            print(f"Error checking for updates: {e}")
+        raise PreventUpdate
 
     return app
 
@@ -448,7 +485,9 @@ def find_two_latest_nc(data_dir: str):
     if len(files) == 1:
         p = os.path.join(data_dir, files[-1])
         return p, p
-    return os.path.join(data_dir, files[-2]), os.path.join(data_dir, files[-1])
+    file2 = os.path.join(data_dir, files[-2])
+    file1 = os.path.join(data_dir, files[-1])
+    return file2, file1
 
 def main():
     parser = argparse.ArgumentParser(description="Thailand Fire Danger Dash App")
@@ -457,7 +496,8 @@ def main():
     parser.add_argument("--noon-index", type=int, default=6, help="Time index for noon extraction (default 6 = 12:00 UTC)")
     parser.add_argument("--auto-download", action="store_true",
                         help="If set, fetch latest two *_00UTC_d03.nc into --data-dir (no change to structure)")
-    parser.add_argument("--host", default="127.0.0.1"); parser.add_argument("--port", type=int, default=8050)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8050)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
@@ -470,16 +510,16 @@ def main():
 
     read_nc(y_nc, t_nc, noon_index=args.noon_index)
 
-    # Compute indices (sequential; threads retained for parity with earlier code)
     for fn in [cal_ffmc, cal_isi, cal_dmc, cal_dc, cal_bui, cal_fwi]:
-        th = Thread(target=fn); th.start(); th.join()
+        th = Thread(target=fn)
+        th.start()
+        th.join()
 
-    # Precompute admin levels for instant switching
     gdfs = {lvl: sample_to_admin(args.gpkg, lvl) for lvl in (1, 2, 3)}
     geojson_by_level = {lvl: json.loads(df.to_crs(4326).to_json()) for (lvl, df) in gdfs.items()}
 
-    # Pass the latest NetCDF file name to the app
-    app = build_app(gdfs, geojson_by_level, latest_nc_file=os.path.basename(t_nc))
+    app = build_app(gdfs, geojson_by_level, latest_nc_file=os.path.basename(t_nc),
+                    data_dir=args.data_dir, gpkg_path=args.gpkg, noon_index=args.noon_index)
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 if __name__ == "__main__":
