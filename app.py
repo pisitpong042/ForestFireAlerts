@@ -21,7 +21,8 @@ from dash import dcc, html
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 from flask import Flask
-import urllib.request
+import simplekml
+import tempfile
 
 # Optional: downloader (works if download_d03.py exposes fetch_latest_two)
 try:
@@ -350,7 +351,11 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
             interval=5 * 60 * 1000,  # Check every 5 minutes (in milliseconds)
             n_intervals=0
         ),
-        html.H3(f"Thailand Fire Danger - Latest Data: {latest_nc_file}", id="headline", style={"textAlign": "center"}),
+        html.Div([
+            html.H3(f"Thailand Fire Danger - Latest Data: {latest_nc_file}", id="headline", style={"textAlign": "center", "display": "inline-block", "marginRight": "16px"}),
+            html.Button("Export KML", id="export-kml-btn", n_clicks=0, style={"verticalAlign": "middle"}),
+            dcc.Download(id="download-kml"),
+        ], style={"textAlign": "center", "marginBottom": "12px"}),
 
         html.Div([
             html.Span("Level: ", style={"marginRight": "8px"}),
@@ -474,6 +479,53 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
             print(f"Error checking for updates: {e}")
         raise PreventUpdate
 
+    @app.callback(
+        Output("download-kml", "data"),
+        Input("export-kml-btn", "n_clicks"),
+        Input("admin", "value"),
+        Input("metric", "value"),
+        prevent_initial_call=True,
+    )
+    def export_kml(n_clicks, admin_level, metric):
+        if not n_clicks:
+            raise PreventUpdate
+        gdf = gdfs_by_level[int(admin_level)]
+        cat_col = f"{metric}_CAT"
+        color_map = {
+            "Low": 'ffb366ff',      # blue (AABBGGRR)
+            "Moderate": 'ff66ff66', # green
+            "High": 'ff00ffff',     # yellow
+            "Very High": 'ff0000ff',# red
+            "Extreme": 'ff222222',  # brown/dark
+        }
+        kml = simplekml.Kml()
+        for idx, row in gdf.iterrows():
+            geom = row.geometry
+            placemark_name = f"{row.get('NAME', '')} ({row.get('GID', '')})"
+            style_color = color_map.get(row.get(cat_col, 'Low'), 'ffb366ff')
+            if geom.geom_type == 'Polygon':
+                pol = kml.newpolygon(name=placemark_name)
+                pol.outerboundaryis = [(x, y) for x, y in zip(*geom.exterior.xy)]
+                pol.style.polystyle.color = style_color
+                pol.style.polystyle.outline = 1
+            elif geom.geom_type == 'MultiPolygon':
+                for poly in geom.geoms:
+                    pol = kml.newpolygon(name=placemark_name)
+                    pol.outerboundaryis = [(x, y) for x, y in zip(*poly.exterior.xy)]
+                    pol.style.polystyle.color = style_color
+                    pol.style.polystyle.outline = 1
+            else:
+                continue
+            # Add all properties as extended data
+            for col in gdf.columns:
+                if col != 'geometry':
+                    pol.extendeddata.newdata(name=col, value=str(row[col]))
+        with tempfile.NamedTemporaryFile(suffix=".kml", delete=False) as tmp:
+            kml.save(tmp.name)
+            tmp.seek(0)
+            kml_data = tmp.read()
+        return dcc.send_bytes(kml_data, f"fire_danger_{metric}_admin{admin_level}.kml")
+
     return app
 
 # --------------------------  Files & CLI  ------------------------------------
@@ -501,17 +553,6 @@ def main():
     parser.add_argument("--port", type=int, default=8050)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-
-    # Check if gadm41_THA.gpkg exists, and download it if not
-    if not os.path.exists(args.gpkg):
-        print(f"{args.gpkg} not found. Downloading...")
-        url = "https://geodata.ucdavis.edu/gadm/gadm4.1/gpkg/gadm41_THA.gpkg"
-        try:
-            urllib.request.urlretrieve(url, args.gpkg)
-            print(f"Downloaded {args.gpkg} successfully.")
-        except Exception as e:
-            print(f"Failed to download {args.gpkg}: {e}")
-            return
 
     if args.auto_download and HAVE_DOWNLOADER:
         os.makedirs(args.data_dir, exist_ok=True)
