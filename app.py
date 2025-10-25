@@ -361,7 +361,7 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
             html.Span("Level: ", style={"marginRight": "8px"}),
             dcc.RadioItems(
                 id="admin",
-                value=3,
+                value=1,
                 options=[
                     {"label": "Province", "value": 1},
                     {"label": "District", "value": 2},
