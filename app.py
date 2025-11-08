@@ -351,8 +351,9 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
             interval=5 * 60 * 1000,  # Check every 5 minutes (in milliseconds)
             n_intervals=0
         ),
+        dcc.Store(id="latest-basename", data=os.path.basename(latest_nc_file)),
         html.Div([
-            html.H3(f"Thailand Fire Danger - Latest Data: {latest_nc_file}", id="headline", style={"textAlign": "center", "display": "inline-block", "marginRight": "16px"}),
+        html.H3(os.path.basename(latest_nc_file), id="headline", style={"textAlign": "center", "display": "inline-block", "marginRight": "16px"}),
             html.Button("Export KML", id="export-kml-btn", n_clicks=0, style={"verticalAlign": "middle"}),
             dcc.Download(id="download-kml"),
         ], style={"textAlign": "center", "marginBottom": "12px"}),
@@ -403,6 +404,20 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
         "Very High": CLASS_COLORS[3],
         "Extreme": CLASS_COLORS[4],
     }
+
+    # Clientside callback: copy the latest-basename store value into the headline
+    app.clientside_callback(
+        """
+        function(basename) {
+            if (typeof(basename) === 'undefined' || basename === null) {
+                throw window.dash_clientside.PreventUpdate;
+            }
+            return basename;
+        }
+        """,
+        Output("headline", "children"),
+        Input("latest-basename", "data"),
+    )
 
     @app.callback(
         Output("map", "figure"),
@@ -455,17 +470,21 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
         return fig, legend_children
 
     @app.callback(
-        Output("headline", "children"),
+        Output("latest-basename", "data"),
         Input("update-interval", "n_intervals"),
-        State("headline", "children"),
+        State("latest-basename", "data"),
     )
-    def check_for_updates(n_intervals, current_headline):
-        """Periodically check for updates to the latest NetCDF file."""
+    def check_for_updates(n_intervals, current_basename):
+        """Periodically check for updates to the latest NetCDF file and update the store."""
         try:
             if HAVE_DOWNLOADER:
                 fetch_latest_two(data_dir)
             y_nc_new, t_nc_new = find_two_latest_nc(data_dir)
-            if os.path.basename(t_nc_new) not in current_headline:
+
+            new_base = os.path.basename(t_nc_new)
+            cur_base = str(current_basename or "")
+
+            if new_base != cur_base:
                 print(f"New NetCDF file detected: {t_nc_new}")
                 read_nc(y_nc_new, t_nc_new, noon_index=noon_index)
 
@@ -474,7 +493,8 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
                 gdfs_by_level = {lvl: sample_to_admin(gpkg_path, lvl) for lvl in (1, 2, 3)}
                 geojson_by_level = {lvl: json.loads(df.to_crs(4326).to_json()) for (lvl, df) in gdfs_by_level.items()}
 
-                return f"Thailand Fire Danger - Latest Data: {os.path.basename(t_nc_new)}"
+                # Return new basename into the store; clientside callback will update the DOM
+                return new_base
         except Exception as e:
             print(f"Error checking for updates: {e}")
         raise PreventUpdate
