@@ -569,7 +569,7 @@ def main():
     parser.add_argument("--noon-index", type=int, default=6, help="Time index for noon extraction (default 6 = 12:00 UTC)")
     parser.add_argument("--auto-download", action="store_true",
                         help="If set, fetch latest two *_00UTC_d03.nc into --data-dir (no change to structure)")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8050)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
