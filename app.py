@@ -23,6 +23,7 @@ from dash.exceptions import PreventUpdate
 from flask import Flask
 import simplekml
 import tempfile
+import urllib.request
 
 # Optional: downloader (works if download_d03.py exposes fetch_latest_two)
 try:
@@ -573,6 +574,17 @@ def main():
     parser.add_argument("--port", type=int, default=8050)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
+
+    # Check if gadm41_THA.gpkg exists, and download it if not
+    if not os.path.exists(args.gpkg):
+        print(f"{args.gpkg} not found. Downloading...")
+        url = "https://geodata.ucdavis.edu/gadm/gadm4.1/gpkg/gadm41_THA.gpkg"
+        try:
+            urllib.request.urlretrieve(url, args.gpkg)
+            print(f"Downloaded {args.gpkg} successfully.")
+        except Exception as e:
+            print(f"Failed to download {args.gpkg}: {e}")
+            return
 
     if args.auto_download and HAVE_DOWNLOADER:
         os.makedirs(args.data_dir, exist_ok=True)
