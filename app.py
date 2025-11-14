@@ -334,7 +334,10 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
               data_dir: str,
               gpkg_path: str,
               noon_index: int) -> dash.Dash:
+    
     app = dash.Dash(__name__)
+    app.server.static_folder = 'static'
+    app.server.static_url_path = '/static'
     server = app.server  # Flask server for deployment
 
     metric_options = [
@@ -354,10 +357,27 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
         ),
         dcc.Store(id="latest-basename", data=os.path.basename(latest_nc_file)),
         html.Div([
-        html.H3(os.path.basename(latest_nc_file), id="headline", style={"textAlign": "center", "display": "inline-block", "marginRight": "16px"}),
-            html.Button("Export KML", id="export-kml-btn", n_clicks=0, style={"verticalAlign": "middle"}),
+            html.H3(
+                os.path.basename(latest_nc_file),
+                id="headline",
+                style={"textAlign": "center", "display": "inline-block", "marginRight": "16px"},
+            ),
+            html.Button("Export KML", id="export-kml-btn", n_clicks=0, style={"verticalAlign": "middle", "marginLeft": "8px"}),
             dcc.Download(id="download-kml"),
-        ], style={"textAlign": "center", "marginBottom": "12px"}),
+            # Right-aligned About Us link within the same top container
+            html.A(
+                "About Us",
+                href="/about",
+                target="_blank",
+                style={
+                    "position": "absolute",
+                    "right": "20px",
+                    "top": "8px",
+                    "textDecoration": "none",
+                    "fontSize": "14px",
+                },
+            ),
+        ], style={"textAlign": "center", "marginBottom": "12px", "position": "relative"}),
 
         html.Div([
             html.Span("Level: ", style={"marginRight": "8px"}),
@@ -546,6 +566,10 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
             tmp.seek(0)
             kml_data = tmp.read()
         return dcc.send_bytes(kml_data, f"fire_danger_{metric}_admin{admin_level}.kml")
+
+    @server.route('/about')
+    def about():
+        return app.server.send_static_file('about.html')
 
     return app
 
