@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>About Us - Thailand Fire Danger</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 { color: #333; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        
+        .logos-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ccc;
+            flex-wrap: wrap;
+        }
+        
+        .logos-container img {
+            height: 80px;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body>
+    <h1>About Thailand Fire Danger</h1>
+    <p>This application provides real-time fire danger forecasts for Thailand based on WRF meteorological data and FWI index calculations.</p>
+    
+    <h2>Features</h2>
+    <ul>
+        <li>Fire Weather Index (FWI) and component indices</li>
+        <li>Multiple administrative levels (Province, District, Sub-district)</li>
+        <li>KML export capability</li>
+    </ul>
+    
+    <h2>Data Sources</h2>
+    <p>Uses WRF model data and GADM administrative boundaries.</p>
+    
+    <p><a href="/">Back to Map</a></p>
+    
+    <div class="logos-container">
+        <img src="/static/csii.png" alt="CSII Logo">
+        <img src="/static/forestfires.png" alt="Forest Fires Logo">
+        <img src="/static/min-nat-res.png" alt="Ministry of Natural Resources Logo">
+        <img src="/static/royal-forest-dept.png" alt="Royal Forest Department Logo">
+        <img src="/static/south-asian.png" alt="South Asian Logo">
+    </div>
+</body>
+</html>
