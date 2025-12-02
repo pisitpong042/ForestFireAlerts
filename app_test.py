@@ -410,7 +410,7 @@ def build_app(
             html.Span("Level: ", style={"marginRight": "8px"}),
             dcc.RadioItems(
                 id="admin",
-                value=3,
+                value=1,
                 options=[
                     {"label": "Province", "value": 1},
                     {"label": "District", "value": 2},
@@ -733,7 +733,7 @@ def main():
 
     # Extra overlays (relative to this file)
     base_dir = os.path.dirname(__file__)
-    overlays_dir = os.path.join(base_dir, "../forest_fire_newlayers")
+    overlays_dir = os.path.join(base_dir)
     overlays = {}
     try:
         overlays = {
