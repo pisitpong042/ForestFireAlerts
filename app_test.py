@@ -759,7 +759,56 @@ def main():
         noon_index=args.noon_index,
         overlays=overlays,
     )
-    app.run(host=args.host, port=args.port, debug=args.debug)
+    return app
+
+# Initialize app at module level for WSGI and Waitress
+# Allows: waitress-serve --port=8000 app_test:app
+if __name__ != "__main__":
+    try:
+        APP_DIR = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.environ.get("FIRE_DATA_DIR", APP_DIR)
+        gpkg_path = os.environ.get("FIRE_GPKG", os.path.join(APP_DIR, "gadm41_THA.gpkg"))
+        noon_index = int(os.environ.get("FIRE_NOON_INDEX", "6"))
+        
+        y_nc, t_nc = find_two_latest_nc(data_dir)
+        read_nc(y_nc, t_nc, noon_index=noon_index)
+        
+        for fn in [cal_ffmc, cal_isi, cal_dmc, cal_dc, cal_bui, cal_fwi]:
+            Thread(target=fn).start()
+        
+        gdfs = {lvl: sample_to_admin(gpkg_path, lvl) for lvl in (1, 2, 3)}
+        geojson_by_level = {lvl: json.loads(df.to_crs(4326).to_json()) for (lvl, df) in gdfs.items()}
+        
+        overlays = {}
+        try:
+            overlays = {
+                "Protected Areas": load_geojson_layer(os.path.join(APP_DIR, "protected_areas.geojson")),
+                "Reserved Forests": load_geojson_layer(os.path.join(APP_DIR, "reserved_national_reserved_forest.geojson")),
+                "Forest Groups": load_geojson_layer(os.path.join(APP_DIR, "forests_14_groups.geojson")),
+            }
+        except Exception as e:
+            print(f"Could not load overlay layers: {e}")
+        
+        app = build_app(gdfs, geojson_by_level, os.path.basename(t_nc), data_dir, gpkg_path, noon_index, overlays)
+        server = app.server
+    except Exception as e:
+        print(f"Error initializing app: {e}")
+        import traceback
+        traceback.print_exc()
+        app = dash.Dash(__name__)
+        app.layout = html.Div("Application initialization failed.")
+        server = app.server
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Thailand Fire Danger Dash App")
+    parser.add_argument("--data-dir", default=".", help="Directory containing *_d03.nc files")
+    parser.add_argument("--gpkg", default="gadm41_THA.gpkg", help="Path to GADM 4.1 GeoPackage")
+    parser.add_argument("--noon-index", type=int, default=6, help="Time index for noon extraction (default 6 = 12:00 UTC)")
+    parser.add_argument("--auto-download", action="store_true", help="If set, fetch latest two *_00UTC_d03.nc into --data-dir")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8050)
+    parser.add_argument("--debug", action="store_true")
+    args = parser.parse_args()
+    
+    app = main()
+    app.run(host=args.host, port=args.port, debug=args.debug)
