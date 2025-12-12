@@ -29,7 +29,7 @@ import urllib.request
 # Optional: downloader (works if download_d03.py exposes fetch_latest_two)
 try:
     from download_d03 import fetch_latest_two
-    HAVE_DOWNLOADER = True
+    HAVE_DOWNLOADER = False #no downloading on a production server!
 except Exception:
     HAVE_DOWNLOADER = False
 
@@ -358,7 +358,7 @@ def build_app(
     overlay_options = [
         {"label": "Protected Areas", "value": "Protected Areas"},
         {"label": "Reserved Forests", "value": "Reserved Forests"},
-        {"label": "Forest Groups", "value": "Forest Groups"},
+      #  {"label": "Forest Groups", "value": "Forest Groups"}, #broken!
     ]
 
     COLOR_MAP = {
