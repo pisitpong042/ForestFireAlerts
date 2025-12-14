@@ -378,13 +378,14 @@ def build_app(
         dcc.Store(id="latest-basename", data=os.path.basename(latest_nc_file)),
         html.Div([
             html.H3(
-                id="headline",
-                style={
-                    "textAlign": "center",
-                    "display": "inline-block",
-                    "marginRight": "16px",
-                },
-            ),
+                    f"Thailand Fire Danger - Latest Data: {os.path.basename(latest_nc_file)}",
+                    id="headline",
+                    style={
+                        "textAlign": "center",
+                        "display": "inline-block",
+                        "marginRight": "16px",
+                    },
+                ),
             html.Button(
                 "Export KML",
                 id="export-kml-btn",
