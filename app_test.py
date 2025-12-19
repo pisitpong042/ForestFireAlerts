@@ -386,6 +386,7 @@ def build_app(
                         "marginRight": "16px",
                     },
                 ),
+            html.Button("Refresh", id="refresh-btn", n_clicks=0, style={"verticalAlign": "middle", "marginLeft": "8px"}),
             html.Button(
                 "Export KML",
                 id="export-kml-btn",
@@ -393,6 +394,7 @@ def build_app(
                 style={"verticalAlign": "middle", "marginLeft": "8px"},
             ),
             dcc.Download(id="download-kml"),
+            html.Div(id="reload-trigger", style={"display": "none"}),
             html.A(
                 "About Us",
                 href="/static/about.html",
@@ -466,6 +468,21 @@ def build_app(
         """,
         Output("headline", "children"),
         Input("latest-basename", "data"),
+    )
+
+    # Clientside callback: reload page when Refresh button is clicked
+    app.clientside_callback(
+        """
+        function(n_clicks) {
+            if (!n_clicks) {
+                throw window.dash_clientside.PreventUpdate;
+            }
+            window.location.reload();
+            return '';
+        }
+        """,
+        Output("reload-trigger", "children"),
+        Input("refresh-btn", "n_clicks"),
     )
 
     @app.callback(
