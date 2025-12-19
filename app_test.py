@@ -597,7 +597,19 @@ def build_app(
 
             if new_base != cur_base:
                 print(f"New NetCDF file detected: {t_nc_new}")
+                # Read new NetCDF files into globals
                 read_nc(y_nc_new, t_nc_new, noon_index=noon_index)
+
+                # Recompute FWI-related fields (run potentially expensive calculations)
+                threads = []
+                for fn in [cal_ffmc, cal_isi, cal_dmc, cal_dc, cal_bui, cal_fwi]:
+                    th = Thread(target=fn)
+                    th.start()
+                    threads.append(th)
+                for th in threads:
+                    th.join()
+
+                print("Recomputed FWI fields from new NetCDF")
 
                 nonlocal gdfs_by_level, geojson_by_level
                 gdfs_by_level = {lvl: sample_to_admin(gpkg_path, lvl) for lvl in (1, 2, 3)}
