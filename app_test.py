@@ -9,6 +9,7 @@
 # - optional overlays: Protected Areas / Reserved Forests / Forest Groups
 # - custom legend panel lists ALL classes + numeric thresholds (always visible)
 # - "About" page with partner logos (served from /static/about.html)
+# - Refresh button scans directory for new NC files and recomputes
 # -----------------------------------------------------------------------------
 
 import os, json, time, argparse
@@ -327,16 +328,62 @@ def sample_to_admin(geo_pkg_path: str, level: int) -> gpd.GeoDataFrame:
     layer = _read_admin_layer(geo_pkg_path, level)
     return _sample_grid_to_gdf(layer)
 
+# --------------------------  Files & CLI  ------------------------------------
+def find_two_latest_nc(data_dir: str):
+    """Look for files that end with 'd03.nc' in data_dir and pick the two most recent."""
+    files = [f for f in os.listdir(data_dir) if f.endswith("d03.nc")]
+    if not files:
+        raise FileNotFoundError("No *_d03.nc files found in --data-dir")
+    files = sorted(files, key=lambda f: os.path.getmtime(os.path.join(data_dir, f)))
+    if len(files) == 1:
+        p = os.path.join(data_dir, files[-1])
+        return p, p
+    file2 = os.path.join(data_dir, files[-2])
+    file1 = os.path.join(data_dir, files[-1])
+    return file2, file1
+
+def load_geojson_layer(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def recompute_data(data_dir, gpkg_path, noon_index):
+    """Scan for new NC files and recompute all data."""
+    print("Scanning for new NC files...")
+    y_nc, t_nc = find_two_latest_nc(data_dir)
+    print(f"Found NC files: {y_nc}, {t_nc}")
+    
+    print("Reading NC files...")
+    read_nc(y_nc, t_nc, noon_index=noon_index)
+    
+    print("Computing FWI indices...")
+    threads = []
+    for fn in [cal_ffmc, cal_isi, cal_dmc, cal_dc, cal_bui, cal_fwi]:
+        th = Thread(target=fn)
+        th.start()
+        threads.append(th)
+    for th in threads:
+        th.join()
+    
+    print("Sampling to admin levels...")
+    gdfs = {lvl: sample_to_admin(gpkg_path, lvl) for lvl in (1, 2, 3)}
+    geojson_by_level = {
+        lvl: json.loads(df.to_crs(4326).to_json())
+        for (lvl, df) in gdfs.items()
+    }
+    
+    return gdfs, geojson_by_level, os.path.basename(t_nc)
+
 # --------------------------  Dash app  ---------------------------------------
 def build_app(
-    gdfs_by_level: dict[int, gpd.GeoDataFrame],
-    geojson_by_level: dict[int, dict],
-    latest_nc_file: str,
     data_dir: str,
     gpkg_path: str,
     noon_index: int,
     overlays: dict | None = None,
 ) -> dash.Dash:
+    
+    # Initial data load
+    gdfs_by_level, geojson_by_level, latest_basename = recompute_data(data_dir, gpkg_path, noon_index)
+    
     app = dash.Dash(__name__)
 
     static_dir = os.path.join(os.path.dirname(__file__), 'static')
@@ -370,15 +417,12 @@ def build_app(
     }
 
     app.layout = html.Div([
-        dcc.Interval(
-            id="update-interval",
-            interval=5 * 60 * 1000,  # 5 minutes
-            n_intervals=0,
-        ),
-        dcc.Store(id="latest-basename", data=os.path.basename(latest_nc_file)),
+        dcc.Store(id="latest-basename", data=latest_basename),
+        dcc.Store(id="gdfs-store", data=None),  # Will store serialized GeoDataFrames
+        dcc.Store(id="geojson-store", data=geojson_by_level),
         html.Div([
             html.H3(
-                    f"Thailand Fire Danger - Latest Data: {os.path.basename(latest_nc_file)}",
+                    f"Thailand Fire Danger - Latest Data: {latest_basename}",
                     id="headline",
                     style={
                         "textAlign": "center",
@@ -394,7 +438,6 @@ def build_app(
                 style={"verticalAlign": "middle", "marginLeft": "8px"},
             ),
             dcc.Download(id="download-kml"),
-            html.Div(id="reload-trigger", style={"display": "none"}),
             html.A(
                 "About Us",
                 href="/static/about.html",
@@ -456,6 +499,30 @@ def build_app(
         ),
     ])
 
+    # Callback to handle refresh button
+    @app.callback(
+        Output("latest-basename", "data"),
+        Output("geojson-store", "data"),
+        Input("refresh-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def handle_refresh(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        
+        print("Refresh button clicked - rescanning for new NC files...")
+        try:
+            # Recompute everything with new data
+            nonlocal gdfs_by_level, geojson_by_level
+            gdfs_by_level, geojson_by_level, new_basename = recompute_data(data_dir, gpkg_path, noon_index)
+            print(f"Refresh complete - new data: {new_basename}")
+            return new_basename, geojson_by_level
+        except Exception as e:
+            print(f"Error during refresh: {e}")
+            import traceback
+            traceback.print_exc()
+            raise PreventUpdate
+
     # Client-side: keep headline in sync with latest-basename store
     app.clientside_callback(
         """
@@ -470,31 +537,17 @@ def build_app(
         Input("latest-basename", "data"),
     )
 
-    # Clientside callback: reload page when Refresh button is clicked
-    app.clientside_callback(
-        """
-        function(n_clicks) {
-            if (!n_clicks) {
-                throw window.dash_clientside.PreventUpdate;
-            }
-            window.location.reload();
-            return '';
-        }
-        """,
-        Output("reload-trigger", "children"),
-        Input("refresh-btn", "n_clicks"),
-    )
-
     @app.callback(
         Output("map", "figure"),
         Output("legend-box", "children"),
         Input("metric", "value"),
         Input("admin", "value"),
         Input("overlay-checklist", "value"),
+        Input("geojson-store", "data"),
     )
-    def update_map(metric, admin_level, overlays_selected):
+    def update_map(metric, admin_level, overlays_selected, geojson_data):
         gdf = gdfs_by_level[int(admin_level)]
-        gj = geojson_by_level[int(admin_level)]
+        gj = geojson_data[str(admin_level)]
         cat_col = f"{metric}_CAT"
         val_col = metric
 
@@ -580,50 +633,6 @@ def build_app(
         return fig, legend_children
 
     @app.callback(
-        Output("latest-basename", "data"),
-        Input("update-interval", "n_intervals"),
-        State("latest-basename", "data"),
-    )
-    def check_for_updates(n_intervals, current_basename):
-        """Periodically check for updates to the latest NetCDF file and recompute fields."""
-        try:
-            if HAVE_DOWNLOADER:
-                os.makedirs(data_dir, exist_ok=True)
-                fetch_latest_two(data_dir)
-
-            y_nc_new, t_nc_new = find_two_latest_nc(data_dir)
-            new_base = os.path.basename(t_nc_new)
-            cur_base = str(current_basename or "")
-
-            if new_base != cur_base:
-                print(f"New NetCDF file detected: {t_nc_new}")
-                # Read new NetCDF files into globals
-                read_nc(y_nc_new, t_nc_new, noon_index=noon_index)
-
-                # Recompute FWI-related fields (run potentially expensive calculations)
-                threads = []
-                for fn in [cal_ffmc, cal_isi, cal_dmc, cal_dc, cal_bui, cal_fwi]:
-                    th = Thread(target=fn)
-                    th.start()
-                    threads.append(th)
-                for th in threads:
-                    th.join()
-
-                print("Recomputed FWI fields from new NetCDF")
-
-                nonlocal gdfs_by_level, geojson_by_level
-                gdfs_by_level = {lvl: sample_to_admin(gpkg_path, lvl) for lvl in (1, 2, 3)}
-                geojson_by_level = {
-                    lvl: json.loads(df.to_crs(4326).to_json())
-                    for (lvl, df) in gdfs_by_level.items()
-                }
-
-                return new_base
-        except Exception as e:
-            print(f"Error checking for updates: {e}")
-        raise PreventUpdate
-
-    @app.callback(
         Output("download-kml", "data"),
         Input("export-kml-btn", "n_clicks"),
         Input("admin", "value"),
@@ -660,8 +669,6 @@ def build_app(
             if geom.geom_type == "Polygon":
                 add_poly(geom)
                 last_poly = kml.newpolygon(name=placemark_name)
-                # NOTE: add_poly already created a polygon; find last created is messy.
-                # Instead, recreate polygon for extended data to ensure reference available.
                 xs, ys = geom.exterior.xy
                 last_poly.outerboundaryis = list(zip(xs, ys))
                 last_poly.style.polystyle.color = style_color
@@ -670,7 +677,6 @@ def build_app(
                 last_poly = None
                 for poly in geom.geoms:
                     add_poly(poly)
-                    # create another polygon object to hold extended data for consistency
                     last_poly = kml.newpolygon(name=placemark_name)
                     xs, ys = poly.exterior.xy
                     last_poly.outerboundaryis = list(zip(xs, ys))
@@ -679,10 +685,8 @@ def build_app(
             else:
                 continue
 
-            # Add all properties as extended data
             for col in gdf.columns:
                 if col != "geometry":
-                    # attach to last_poly if available
                     if 'last_poly' in locals() and last_poly is not None:
                         last_poly.extendeddata.newdata(name=col, value=str(row[col]))
 
@@ -694,24 +698,6 @@ def build_app(
         return dcc.send_bytes(kml_data, f"fire_danger_{metric}_admin{admin_level}.kml")
 
     return app
-
-# --------------------------  Files & CLI  ------------------------------------
-def find_two_latest_nc(data_dir: str):
-    """Look for files that end with 'd03.nc' in data_dir and pick the two most recent."""
-    files = [f for f in os.listdir(data_dir) if f.endswith("d03.nc")]
-    if not files:
-        raise FileNotFoundError("No *_d03.nc files found in --data-dir")
-    files = sorted(files, key=lambda f: os.path.getmtime(os.path.join(data_dir, f)))
-    if len(files) == 1:
-        p = os.path.join(data_dir, files[-1])
-        return p, p
-    file2 = os.path.join(data_dir, files[-2])
-    file1 = os.path.join(data_dir, files[-1])
-    return file2, file1
-
-def load_geojson_layer(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 def main():
     parser = argparse.ArgumentParser(description="Thailand Fire Danger Dash App")
@@ -745,22 +731,6 @@ def main():
         os.makedirs(args.data_dir, exist_ok=True)
         fetch_latest_two(args.data_dir)
 
-    y_nc, t_nc = find_two_latest_nc(args.data_dir)
-    print("Using NetCDF:", y_nc, t_nc)
-
-    read_nc(y_nc, t_nc, noon_index=args.noon_index)
-
-    for fn in [cal_ffmc, cal_isi, cal_dmc, cal_dc, cal_bui, cal_fwi]:
-        th = Thread(target=fn)
-        th.start()
-        th.join()
-
-    gdfs = {lvl: sample_to_admin(args.gpkg, lvl) for lvl in (1, 2, 3)}
-    geojson_by_level = {
-        lvl: json.loads(df.to_crs(4326).to_json())
-        for (lvl, df) in gdfs.items()
-    }
-
     # Extra overlays (relative to this file)
     base_dir = os.path.dirname(__file__)
     overlays_dir = os.path.join(base_dir)
@@ -781,33 +751,20 @@ def main():
         print(f"Could not load overlay layers: {e}")
 
     app = build_app(
-        gdfs,
-        geojson_by_level,
-        latest_nc_file=os.path.basename(t_nc),
         data_dir=args.data_dir,
         gpkg_path=args.gpkg,
         noon_index=args.noon_index,
         overlays=overlays,
     )
-    return app
+    app.run(host=args.host, port=args.port, debug=args.debug)
 
 # Initialize app at module level for WSGI and Waitress
-# Allows: waitress-serve --port=8000 app_test:app
 if __name__ != "__main__":
     try:
         APP_DIR = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.environ.get("FIRE_DATA_DIR", APP_DIR)
         gpkg_path = os.environ.get("FIRE_GPKG", os.path.join(APP_DIR, "gadm41_THA.gpkg"))
         noon_index = int(os.environ.get("FIRE_NOON_INDEX", "6"))
-        
-        y_nc, t_nc = find_two_latest_nc(data_dir)
-        read_nc(y_nc, t_nc, noon_index=noon_index)
-        
-        for fn in [cal_ffmc, cal_isi, cal_dmc, cal_dc, cal_bui, cal_fwi]:
-            Thread(target=fn).start()
-        
-        gdfs = {lvl: sample_to_admin(gpkg_path, lvl) for lvl in (1, 2, 3)}
-        geojson_by_level = {lvl: json.loads(df.to_crs(4326).to_json()) for (lvl, df) in gdfs.items()}
         
         overlays = {}
         try:
@@ -819,7 +776,7 @@ if __name__ != "__main__":
         except Exception as e:
             print(f"Could not load overlay layers: {e}")
         
-        app = build_app(gdfs, geojson_by_level, os.path.basename(t_nc), data_dir, gpkg_path, noon_index, overlays)
+        app = build_app(data_dir, gpkg_path, noon_index, overlays)
         server = app.server
     except Exception as e:
         print(f"Error initializing app: {e}")
@@ -830,15 +787,4 @@ if __name__ != "__main__":
         server = app.server
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Thailand Fire Danger Dash App")
-    parser.add_argument("--data-dir", default=".", help="Directory containing *_d03.nc files")
-    parser.add_argument("--gpkg", default="gadm41_THA.gpkg", help="Path to GADM 4.1 GeoPackage")
-    parser.add_argument("--noon-index", type=int, default=6, help="Time index for noon extraction (default 6 = 12:00 UTC)")
-    parser.add_argument("--auto-download", action="store_true", help="If set, fetch latest two *_00UTC_d03.nc into --data-dir")
-    parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8050)
-    parser.add_argument("--debug", action="store_true")
-    args = parser.parse_args()
-    
-    app = main()
-    app.run(host=args.host, port=args.port, debug=args.debug)
+    main()
