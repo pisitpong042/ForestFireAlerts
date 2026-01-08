@@ -1,0 +1,30 @@
+Jan 2026, Marko Niinimaki
+
+Deployment of this software at http://fdrs.forest.go.th
+
+Summary: screen, caddy, cron.
+NB: Since the script (app_test.py) runs under screen, it will NOT recover automatically if the
+host is re-started.
+
+The software is a direct clone of this Github repository, running under the screen software,
+unprivileged user's account, as follows:
+
+while (true)
+do
+    python app_test.py --port=8080
+    sleep 10
+done
+
+As the root user, the caddy software maps the port 8080 into the https port. Caddy runs
+with the following configuration:
+
+fdrs.forest.go.th {
+    reverse_proxy 127.0.0.1:8080
+}
+
+Additionally, two cron jobs take care of
+-downloading the most recent NC files (download_d03.py)
+-restarting the server when a new NC file has been downloaded
+
+These crom jobs are running under the same unprivileged account as the software.
+
