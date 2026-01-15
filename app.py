@@ -8,6 +8,7 @@
 # - samples to GADM ADM_1 / ADM_2 / ADM_3 (centroid→nearest cell)
 # - interactive Dash map with metric + admin level switchers
 # - custom legend panel lists ALL classes + numeric thresholds (always visible)
+# - overlays
 # -----------------------------------------------------------------------------
 
 import os, json, time, argparse
