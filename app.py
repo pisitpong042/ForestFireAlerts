@@ -344,6 +344,22 @@ overlay_files = {
     "reserved": "reserved_national_reserved_forest.geojson"
 }
 
+def load_overlay(key):
+    """Load overlay data on demand."""
+    if key in overlay_gdfs:
+        return  # Already loaded
+    filename = overlay_files.get(key)
+    if filename and os.path.exists(filename):
+        try:
+            gdf = gpd.read_file(filename)
+            overlay_gdfs[key] = gdf
+            overlay_geojsons[key] = json.loads(gdf.to_json())
+            print(f"Loaded overlay {filename} successfully.")
+        except Exception as e:
+            print(f"Failed to load {filename}: {e}")
+    else:
+        print(f"Overlay file {filename} not found. Skipping.")
+
 # --------------------------  Dash app  ---------------------------------------
 # Add an interval component for periodic updates
 def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
@@ -492,6 +508,7 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
 
         # Add overlay if selected
         if overlay != "None":
+            load_overlay(overlay)
             gdf_overlay = overlay_gdfs[overlay]
             gj_overlay = overlay_geojsons[overlay]
             # Add overlay as a choropleth with constant color for transparency
@@ -661,19 +678,6 @@ def main():
 
     gdfs = {lvl: sample_to_admin(args.gpkg, lvl) for lvl in (1, 2, 3)}
     geojson_by_level = {lvl: json.loads(df.to_crs(4326).to_json()) for (lvl, df) in gdfs.items()}
-
-    # Load overlay data from local files
-    for key, filename in overlay_files.items():
-        if os.path.exists(filename):
-            try:
-                gdf = gpd.read_file(filename)
-                overlay_gdfs[key] = gdf
-                overlay_geojsons[key] = json.loads(gdf.to_json())
-                print(f"Loaded overlay {filename} successfully.")
-            except Exception as e:
-                print(f"Failed to load {filename}: {e}")
-        else:
-            print(f"Overlay file {filename} not found. Skipping.")
 
     app = build_app(gdfs, geojson_by_level, latest_nc_file=os.path.basename(t_nc),
                     data_dir=args.data_dir, gpkg_path=args.gpkg, noon_index=args.noon_index)
