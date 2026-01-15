@@ -326,6 +326,23 @@ def sample_to_admin(geo_pkg_path: str, level: int) -> gpd.GeoDataFrame:
     layer = _read_admin_layer(geo_pkg_path, level)
     return _sample_grid_to_gdf(layer)
 
+# Add global variables for overlays
+overlay_gdfs = {}
+overlay_geojsons = {}
+
+# Add overlay options
+overlay_options = [
+    {"label": "Overlay: None", "value": "None"},
+    {"label": "Overlay: Protected areas", "value": "protected"},
+    {"label": "Overlay: Reserved forests", "value": "reserved"},
+]
+
+# Add overlay file names (local files)
+overlay_files = {
+    "protected": "protected_areas.geojson",
+    "reserved": "reserved_national_reserved_forest.geojson"
+}
+
 # --------------------------  Dash app  ---------------------------------------
 # Add an interval component for periodic updates
 def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
@@ -333,7 +350,7 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
               latest_nc_file: str,
               data_dir: str,
               gpkg_path: str,
-              noon_index: int) -> dash.Dash:
+              noon_index: int = 6) -> dash.Dash:
     
     app = dash.Dash(__name__)
     app.server.static_folder = 'static'
@@ -394,6 +411,7 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
         ], style={"margin": "6px 0 12px"}),
 
         dcc.Dropdown(id="metric", options=metric_options, value="FWI", clearable=False),
+        dcc.Dropdown(id="overlay", options=overlay_options, value="None", clearable=False),
 
         dcc.Loading(
             id="loading-spinner",
@@ -445,8 +463,9 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
         Output("legend-box", "children"),
         Input("metric", "value"),
         Input("admin", "value"),
+        Input("overlay", "value"),
     )
-    def update_map(metric, admin_level):
+    def update_map(metric, admin_level, overlay):
         gdf = gdfs_by_level[int(admin_level)]
         gj = geojson_by_level[int(admin_level)]
         cat_col = f"{metric}_CAT"
@@ -469,6 +488,21 @@ def build_app(gdfs_by_level: dict[int, gpd.GeoDataFrame],
             showlegend=False,
             title=f"Thailand Fire Danger ({ {1: 'Province', 2: 'District', 3: 'Sub-district'}[int(admin_level)] })",
         )
+
+        # Add overlay if selected
+        if overlay != "None":
+            gdf_overlay = overlay_gdfs[overlay]
+            gj_overlay = overlay_geojsons[overlay]
+            # Add overlay as a choropleth with constant color for transparency
+            overlay_fig = px.choropleth_mapbox(
+                gdf_overlay,
+                geojson=gj_overlay,
+                locations=gdf_overlay.index,  # Assuming index as locations; adjust if needed
+                color_discrete_sequence=["rgba(0,0,0,0.3)"],  # Semi-transparent black
+                mapbox_style="open-street-map",
+                opacity=0.5,
+            )
+            fig.add_trace(overlay_fig.data[0])
 
         rows = bounds_to_rows(BOUNDS_BY_METRIC[metric])
         legend_children = [
@@ -626,6 +660,19 @@ def main():
 
     gdfs = {lvl: sample_to_admin(args.gpkg, lvl) for lvl in (1, 2, 3)}
     geojson_by_level = {lvl: json.loads(df.to_crs(4326).to_json()) for (lvl, df) in gdfs.items()}
+
+    # Load overlay data from local files
+    for key, filename in overlay_files.items():
+        if os.path.exists(filename):
+            try:
+                gdf = gpd.read_file(filename)
+                overlay_gdfs[key] = gdf
+                overlay_geojsons[key] = json.loads(gdf.to_json())
+                print(f"Loaded overlay {filename} successfully.")
+            except Exception as e:
+                print(f"Failed to load {filename}: {e}")
+        else:
+            print(f"Overlay file {filename} not found. Skipping.")
 
     app = build_app(gdfs, geojson_by_level, latest_nc_file=os.path.basename(t_nc),
                     data_dir=args.data_dir, gpkg_path=args.gpkg, noon_index=args.noon_index)
