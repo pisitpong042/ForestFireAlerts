@@ -31,26 +31,7 @@ try:
     HAVE_FWI_LIB = True
 except Exception:
     HAVE_FWI_LIB = False
-
-    def fwi_ffmc(ffmc_yda, t, rh, ws_kmh, prec):
-        return max(0.0, 100 * np.exp(-0.005 * rh) + 0.1 * (t - 15) + 0.01 * ws_kmh - 0.2 * prec)
-
-    def fwi_dmc(dmc_yda, t, rh, prec, lat, mon):
-        return max(0.0, dmc_yda + 0.5 * (t - 10) - 0.3 * prec - 0.2 * (rh - 50))
-
-    def fwi_dc(dc_yda, t, rh, prec, lat, mon):
-        return max(0.0, dc_yda + 0.2 * (t - 10) - 0.1 * prec - 0.05 * (rh - 50))
-
-    def fwi_isi(ffmc, ws_kmh, use_new=True):
-        return max(0.0, 0.1 * ffmc + 0.05 * ws_kmh)
-
-    def fwi_bui(dmc, dc):
-        return max(0.0, 0.5 * dmc + 0.5 * dc)
-
-    def fwi_fwi(isi, bui):
-        return max(0.0, 0.4 * isi + 0.6 * bui)
-
-
+    print("FWI library not found.")
 # -----------------------  Classification  ------------------------------------
 CLASS_LABELS = np.array(["Low", "Moderate", "High", "Very High", "Extreme"])
 CLASS_COLORS = ["blue", "green", "yellow", "red", "brown"]  # keep order
@@ -243,6 +224,7 @@ def cal_fwi():
     for r in range(sn):
         for c in range(we):
             GB_fwi[r, c] = fwi_fwi(float(GB_isi[r, c]), float(GB_bui[r, c]))
+            GB_fwi[r, c] = 100 * GB_fwi[r, c]  # scale up for better visualization
     _time("FWI")
 
 
