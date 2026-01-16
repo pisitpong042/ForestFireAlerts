@@ -57,6 +57,6 @@ for bottommost_file in bottommost_files:
 if __name__ == 'main':
     if num_dl == 1:
         print("New files were found")
-        sys.exit(0)
+        sys.exit(2)
 
     sys.exit(1) #no new files
