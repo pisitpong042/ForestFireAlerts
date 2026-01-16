@@ -1,4 +1,4 @@
-#01_download_files.py
+#03_download_files.py
 #Download the 2 most recent 00UTC_d03.nc files
 import requests
 from bs4 import BeautifulSoup
@@ -27,7 +27,7 @@ elif len(target_files) == 1:
 else:
     print("No files ending with '00UTC_d03.nc' found.")
 
-
+num_dl = 0
 # Download the files
 for bottommost_file in bottommost_files:
     file_url = f"{url}/{bottommost_file}"
@@ -52,3 +52,10 @@ for bottommost_file in bottommost_files:
         sys.stdout.write('\n') # Newline after download is complete
         sys.stdout.flush()
     print(f"Downloaded {bottommost_file}")
+    num_dl = 1
+
+if num_dl == 1:
+    print("New files were found")
+    sys.exit(0)
+
+sys.exit(1) #no new files
