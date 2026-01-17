@@ -176,6 +176,7 @@ def cal_isi():
     for r in range(sn):
         for c in range(we):
             GB_isi[r, c] = fwi_isi(float(GB_ffmc[r, c]), float(GB_Wsp_noon[r, c]), True)
+            GB_isi[r, c] = 100 * GB_isi[r, c]
     _time("ISI")
 
 
@@ -184,7 +185,7 @@ def cal_dmc():
     sn, we = GB_dmc.shape
     for r in range(sn):
         for c in range(we):
-            GB_dmc[r, c] = fwi_dmc(
+            GB_dmc[r, c] = 100 * fwi_dmc( #mult
                 GB_dmc_yda[r, c],
                 float(GB_Temp_noon[r, c]),
                 float(GB_Rh_noon[r, c]),
@@ -199,7 +200,7 @@ def cal_dc():
     sn, we = GB_dc.shape
     for r in range(sn):
         for c in range(we):
-            GB_dc[r, c] = fwi_dc(
+            GB_dc[r, c] = 100 * fwi_dc( #mult
                 GB_dc_yda[r, c],
                 float(GB_Temp_noon[r, c]),
                 float(GB_Rh_noon[r, c]),
