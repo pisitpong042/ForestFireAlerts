@@ -176,7 +176,7 @@ def cal_isi():
     for r in range(sn):
         for c in range(we):
             GB_isi[r, c] = fwi_isi(float(GB_ffmc[r, c]), float(GB_Wsp_noon[r, c]), True)
-            GB_isi[r, c] = 100 * GB_isi[r, c]
+            GB_isi[r, c] = 100 * GB_isi[r, c] #mult
     _time("ISI")
 
 
@@ -225,7 +225,7 @@ def cal_fwi():
     for r in range(sn):
         for c in range(we):
             GB_fwi[r, c] = fwi_fwi(float(GB_isi[r, c]), float(GB_bui[r, c]))
-            GB_fwi[r, c] = 100 * GB_fwi[r, c]  # scale up for better visualization
+            #GB_fwi[r, c] = 100 * GB_fwi[r, c]  # scale up for better visualization
     _time("FWI")
 
 
@@ -322,11 +322,13 @@ overlay_options = [
     {"label": "Overlay: None", "value": "None"},
     {"label": "Overlay: Protected areas", "value": "protected"},
     {"label": "Overlay: Reserved forests", "value": "reserved"},
+    {"label": "Overlay: Forest groups (14 types)", "value": "forests"},
 ]
 
 overlay_files = {
     "protected": "protected_areas.geojson",
-    "reserved": "reserved_national_reserved_forest.geojson"
+    "reserved": "reserved_national_reserved_forest.geojson",
+    "forests": "forests_14_groups.geojson"
 }
 
 
