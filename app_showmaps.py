@@ -6,6 +6,8 @@ import os
 import json
 import argparse
 
+from version import __version__
+
 import plotly.express as px
 import plotly.graph_objects as go
 import dash
@@ -176,6 +178,21 @@ def build_app(maps_dir: str = "./maps",
                     ),
                 ], style={"position": "relative"}),
             ],
+        ),
+
+        html.Footer(
+            html.Div(
+                f"ForestFireAlerts v{__version__}",
+                style={
+                    "textAlign": "center",
+                    "fontSize": "12px",
+                    "color": "#666",
+                    "paddingTop": "12px",
+                    "marginTop": "12px",
+                    "borderTop": "1px solid #ddd",
+                },
+            ),
+            style={"width": "100%", "marginTop": "auto"},
         ),
     ])
 

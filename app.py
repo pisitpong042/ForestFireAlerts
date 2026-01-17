@@ -8,6 +8,8 @@ import argparse
 from threading import Thread
 import urllib.request
 
+from version import __version__
+
 import plotly.express as px
 import dash
 from dash import dcc, html
@@ -131,6 +133,21 @@ def build_app(gdfs_by_level: dict,
                     ),
                 ], style={"position": "relative"}),
             ],
+        ),
+
+        html.Footer(
+            html.Div(
+                f"ForestFireAlerts v{__version__}",
+                style={
+                    "textAlign": "center",
+                    "fontSize": "12px",
+                    "color": "#666",
+                    "paddingTop": "12px",
+                    "marginTop": "12px",
+                    "borderTop": "1px solid #ddd",
+                },
+            ),
+            style={"width": "100%", "marginTop": "auto"},
         ),
     ])
 
