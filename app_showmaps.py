@@ -226,15 +226,47 @@ def build_app(maps_dir: str = "./maps",
                     gdf_overlay = overlay_gdfs[overlay]
                     gj_overlay = overlay_geojsons[overlay]
                     
-                    # Add overlay as a choropleth with constant color for transparency
-                    overlay_fig = px.choropleth_mapbox(
-                        gdf_overlay,
-                        geojson=gj_overlay,
-                        locations=gdf_overlay.index,
-                        color_discrete_sequence=["rgba(0,0,0,0.3)"],
-                        mapbox_style="open-street-map",
-                        opacity=0.5,
-                    )
+                    # Special handling for forests overlay with colors by type
+                    if overlay == "forests":
+                        # Get unique forest types and assign colors
+                        if 'FOREST_TYPE' in gdf_overlay.columns:
+                            forest_types = gdf_overlay['FOREST_TYPE'].unique()
+                            # Create a color palette for different forest types
+                            import plotly.express as px_colors
+                            colors = px_colors.colors.qualitative.Set3
+                            color_map = {ft: colors[i % len(colors)] for i, ft in enumerate(forest_types)}
+                            gdf_overlay['color'] = gdf_overlay['FOREST_TYPE'].map(color_map)
+                            
+                            overlay_fig = px.choropleth_mapbox(
+                                gdf_overlay,
+                                geojson=gj_overlay,
+                                locations=gdf_overlay.index,
+                                color='color',
+                                color_discrete_map={c: c for c in gdf_overlay['color'].unique()},
+                                mapbox_style="open-street-map",
+                                opacity=0.4,
+                            )
+                        else:
+                            # Default overlay rendering if no FOREST_TYPE column
+                            overlay_fig = px.choropleth_mapbox(
+                                gdf_overlay,
+                                geojson=gj_overlay,
+                                locations=gdf_overlay.index,
+                                color_discrete_sequence=["rgba(34,139,34,0.4)"],
+                                mapbox_style="open-street-map",
+                                opacity=0.4,
+                            )
+                    else:
+                        # Standard overlay rendering for other overlays
+                        overlay_fig = px.choropleth_mapbox(
+                            gdf_overlay,
+                            geojson=gj_overlay,
+                            locations=gdf_overlay.index,
+                            color_discrete_sequence=["rgba(0,0,0,0.3)"],
+                            mapbox_style="open-street-map",
+                            opacity=0.5,
+                        )
+                    
                     fig.add_trace(overlay_fig.data[0])
             
             # Generate legend
