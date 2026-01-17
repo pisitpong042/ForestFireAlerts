@@ -10,3 +10,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Generate version file
+        run: |
+          echo "__version__ = '${GITHUB_RUN_NUMBER}'" > version.py
