@@ -96,6 +96,7 @@ GB_u_10m_gr_noon = GB_v_10m_gr_noon = GB_Wsp_noon = None
 GB_precip_24hr = None
 GB_ffmc_yda = GB_dmc_yda = GB_dc_yda = None
 GB_ffmc = GB_dmc = GB_dc = GB_isi = GB_bui = GB_fwi = None
+GB_fwi_100 = GB_isi_100 = GB_dc_100 = GB_dmc_100 = None
 
 _time_start = time.time()
 
@@ -113,6 +114,7 @@ def read_nc(yesterday_nc_file, today_nc_file, noon_index=6):
     global GB_u_10m_gr_noon, GB_v_10m_gr_noon, GB_precip_24hr
     global GB_ffmc, GB_dmc, GB_dc, GB_isi, GB_bui, GB_fwi
     global GB_ffmc_yda, GB_dmc_yda, GB_dc_yda
+    global GB_fwi_100, GB_isi_100, GB_dc_100, GB_dmc_100
 
     # Yesterday: accumulate precip from 14:00 UTC onwards
     y_nc = netCDF4.Dataset(yesterday_nc_file)
@@ -152,6 +154,7 @@ def read_nc(yesterday_nc_file, today_nc_file, noon_index=6):
     GB_ffmc = np.empty((sn, we)); GB_dmc = np.empty((sn, we)); GB_dc = np.empty((sn, we))
     GB_isi  = np.empty((sn, we)); GB_bui = np.empty((sn, we)); GB_fwi = np.empty((sn, we))
     GB_ffmc_yda = np.zeros((sn, we)); GB_dmc_yda = np.zeros((sn, we)); GB_dc_yda = np.zeros((sn, we))
+    GB_fwi_100 = np.empty((sn, we)); GB_isi_100 = np.empty((sn, we)); GB_dc_100 = np.empty((sn, we)); GB_dmc_100 = np.empty((sn, we))
 
 
 # ----------------------  Index computations  ---------------------------------
@@ -171,42 +174,44 @@ def cal_ffmc():
 
 
 def cal_isi():
-    global GB_isi
+    global GB_isi, GB_isi_100
     sn, we = GB_isi.shape
     for r in range(sn):
         for c in range(we):
             GB_isi[r, c] = fwi_isi(float(GB_ffmc[r, c]), float(GB_Wsp_noon[r, c]), True)
-            GB_isi[r, c] = 100 * GB_isi[r, c] #mult
+            GB_isi_100[r, c] = 100 * GB_isi[r, c]
     _time("ISI")
 
 
 def cal_dmc():
-    global GB_dmc
+    global GB_dmc, GB_dmc_100
     sn, we = GB_dmc.shape
     for r in range(sn):
         for c in range(we):
-            GB_dmc[r, c] = 100 * fwi_dmc( #mult
+            GB_dmc[r, c] = fwi_dmc(
                 GB_dmc_yda[r, c],
                 float(GB_Temp_noon[r, c]),
                 float(GB_Rh_noon[r, c]),
                 float(GB_precip_24hr[r, c]),
                 15, 1,
             )
+            GB_dmc_100[r, c] = 100 * GB_dmc[r, c]
     _time("DMC")
 
 
 def cal_dc():
-    global GB_dc
+    global GB_dc, GB_dc_100
     sn, we = GB_dc.shape
     for r in range(sn):
         for c in range(we):
-            GB_dc[r, c] = 100 * fwi_dc( #mult
+            GB_dc[r, c] = fwi_dc(
                 GB_dc_yda[r, c],
                 float(GB_Temp_noon[r, c]),
                 float(GB_Rh_noon[r, c]),
                 float(GB_precip_24hr[r, c]),
                 15, 1,
             )
+            GB_dc_100[r, c] = 100 * GB_dc[r, c]
     _time("DC")
 
 
@@ -220,12 +225,12 @@ def cal_bui():
 
 
 def cal_fwi():
-    global GB_fwi
+    global GB_fwi, GB_fwi_100
     sn, we = GB_fwi.shape
     for r in range(sn):
         for c in range(we):
             GB_fwi[r, c] = fwi_fwi(float(GB_isi[r, c]), float(GB_bui[r, c]))
-            #GB_fwi[r, c] = 100 * GB_fwi[r, c]  # scale up for better visualization
+            GB_fwi_100[r, c] = 100 * GB_fwi[r, c]  # scale up for better visualization
     _time("FWI")
 
 
@@ -289,12 +294,12 @@ def _sample_grid_to_gdf(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
     def pick(A): return A[rr, cc]
 
-    # raw metrics
+    # raw metrics (using scaled versions for FWI, ISI, DC, DMC)
     gdf["FFMC"] = pick(GB_ffmc)
-    gdf["ISI"]  = pick(GB_isi)
-    gdf["FWI"]  = pick(GB_fwi)
-    gdf["DC"]   = pick(GB_dc)
-    gdf["DMC"]  = pick(GB_dmc)
+    gdf["ISI"]  = pick(GB_isi_100)
+    gdf["FWI"]  = pick(GB_fwi_100)
+    gdf["DC"]   = pick(GB_dc_100)
+    gdf["DMC"]  = pick(GB_dmc_100)
     gdf["BUI"]  = pick(GB_bui)
 
     # classes
