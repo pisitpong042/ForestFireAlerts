@@ -13,4 +13,12 @@ jobs:
 
       - name: Generate version file
         run: |
-          echo "__version__ = '${GITHUB_RUN_NUMBER}'" > version.py
+          echo "__version__ = ${GITHUB_RUN_NUMBER}" > version.py
+
+      - name: Commit version file
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add version.py
+          git commit -m "Update version to ${GITHUB_RUN_NUMBER}" || echo "No changes"
+          git push
