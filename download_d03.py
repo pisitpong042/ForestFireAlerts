@@ -54,7 +54,7 @@ for bottommost_file in bottommost_files:
     print(f"Downloaded {bottommost_file}")
     num_dl = 1
 
-if __name__ == 'main':
+if __name__ == '__main__':
     if num_dl == 1:
         print("New files were found")
         sys.exit(2)
