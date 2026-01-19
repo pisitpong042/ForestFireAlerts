@@ -2,10 +2,11 @@
 
 layout
 
-* app.py                 # Dash app (entrypoint)
+* app\_showmaps.py                 # Dash app (entrypoint)
 * fwi.py                 # FWI index implementations (local lib). Should be provided by an expert, not us.
 * fire\_utils.py          # helper functions
 * download\_d03.py        # (optional) fetch the two latest \*\_00UTC\_d03.nc files from https://tiservice.hii.or.th/wrf-roms/netcdf
+* generate\_maps.py	  # generates the maps to be shown
 * gadm41\_THA.gpkg        # GADM 4.1 Thailand map file
 
 
@@ -19,6 +20,8 @@ layout
 
 https://geodata.ucdavis.edu/gadm/gadm4.1/gpkg/gadm41\_THA.gpkg
 
+
+
 **Check libraries compatibility**
 python3 -m pip install bs4 netCDF4 geopandas plotly dash simplekml
 
@@ -26,7 +29,7 @@ python3 -m pip install bs4 netCDF4 geopandas plotly dash simplekml
 
 Running as a local app:
 
-python3 app.py --port=8080
+python3 app\_showmaps.py --port=8080
 
 
 
@@ -40,7 +43,7 @@ See the instructions at Caddy's site to write a 4 line wrapper to serve the app 
 
 Helper programs for Unix:
 
-run\_hourly.sh - checks every hour if there is a new nc file available
+run\_hourly.sh - checks every hour if there is a new nc file available. If there is, downloads, generates maps, restarts server.
 
-generate\_maps.py - For an upcoming, faster version of the app
+
 
