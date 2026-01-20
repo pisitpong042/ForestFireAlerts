@@ -16,6 +16,7 @@ from dash.dependencies import Input, Output
 from dash.exceptions import PreventUpdate
 import simplekml
 import tempfile
+import geopandas as gpd
 
 # Import utilities from fire_utils
 from fire_utils import (
@@ -85,6 +86,39 @@ def build_app(maps_dir: str = "./maps",
     # Initialize map store
     map_store = MapStore(maps_dir)
     
+    def _read_admin_layer(geo_pkg_path: str, level: int) -> gpd.GeoDataFrame:
+        """Read GADM admin layer (1,2,3) and normalize to columns GID/NAME/geometry in EPSG:4326."""
+        assert level in (1, 2, 3)
+        candidates = {
+            1: ["ADM_ADM_1", "ADM_1", "gadm41_THA_1", "tha_adm1"],
+            2: ["ADM_ADM_2", "ADM_2", "gadm41_THA_2", "tha_adm2"],
+            3: ["ADM_ADM_3", "ADM_3", "gadm41_THA_3", "tha_adm3"],
+        }[level]
+
+        gdf = None
+        for lyr in candidates:
+            try:
+                gdf = gpd.read_file(geo_pkg_path, layer=lyr)
+                break
+            except Exception:
+                pass
+        if gdf is None:
+            gdf = gpd.read_file(geo_pkg_path)  # last resort
+
+        name_c = f"NAME_{level}"
+        gid_c  = f"GID_{level}"
+        cols = set(gdf.columns)
+        if name_c not in cols:
+            name_c = next((c for c in gdf.columns if c.startswith("NAME")), None)
+        if gid_c not in cols:
+            gid_c  = next((c for c in gdf.columns if c.startswith("GID")), None)
+        if not name_c or not gid_c:
+            raise ValueError("Could not find NAME_x / GID_x columns in layer")
+
+        gdf = gdf.rename(columns={name_c: "NAME", gid_c: "GID"}).set_geometry("geometry")
+        gdf = gdf.to_crs(4326)
+        return gdf[["GID", "NAME", "geometry"]]
+    
     # Load metadata (date) if available
     metadata_file = os.path.join(maps_dir, "metadata.json")
     metadata = {}
@@ -147,6 +181,7 @@ def build_app(maps_dir: str = "./maps",
                 id="admin",
                 value=1,
                 options=[
+                    {"label": "Base Map", "value": 0},
                     {"label": "Province", "value": 1},
                     {"label": "District", "value": 2},
                     {"label": "Sub-district", "value": 3},
@@ -214,6 +249,83 @@ def build_app(maps_dir: str = "./maps",
     )
     def update_map(metric, admin_level, overlay):
         """Load pre-generated map and apply overlay if needed."""
+        if admin_level == 0:
+            try:
+                gdf = _read_admin_layer(gpkg_path, 1)
+                gj = json.loads(gdf.to_json())
+                fig = px.choropleth_mapbox(
+                    gdf,
+                    geojson=gj,
+                    locations="GID",
+                    color_discrete_sequence=["lightblue"],
+                    mapbox_style="open-street-map",
+                    center={"lat": 15.0, "lon": 101.0}, zoom=5,
+                    hover_name="NAME",
+                )
+                fig.update_layout(
+                    margin=dict(l=0, r=0, t=0, b=0),
+                    showlegend=False,
+                    title="Thailand Base Map",
+                )
+                
+                # Apply overlay if selected
+                if overlay != "None":
+                    load_overlay(overlay)
+                    if overlay in overlay_geojsons:
+                        gdf_overlay = overlay_gdfs[overlay]
+                        gj_overlay = overlay_geojsons[overlay]
+                        
+                        # Special handling for forests overlay with colors by type
+                        if overlay == "forests":
+                            # Get unique forest types and assign colors
+                            if 'FOREST_TYPE' in gdf_overlay.columns:
+                                forest_types = gdf_overlay['FOREST_TYPE'].unique()
+                                # Create a color palette for different forest types
+                                import plotly.express as px_colors
+                                colors = px_colors.colors.qualitative.Set3
+                                color_map = {ft: colors[i % len(colors)] for i, ft in enumerate(forest_types)}
+                                gdf_overlay['color'] = gdf_overlay['FOREST_TYPE'].map(color_map)
+                                
+                                overlay_fig = px.choropleth_mapbox(
+                                    gdf_overlay,
+                                    geojson=gj_overlay,
+                                    locations=gdf_overlay.index,
+                                    color='color',
+                                    color_discrete_map={c: c for c in gdf_overlay['color'].unique()},
+                                    mapbox_style="open-street-map",
+                                    opacity=0.4,
+                                )
+                            else:
+                                # Default overlay rendering if no FOREST_TYPE column
+                                overlay_fig = px.choropleth_mapbox(
+                                    gdf_overlay,
+                                    geojson=gj_overlay,
+                                    locations=gdf_overlay.index,
+                                    color_discrete_sequence=["rgba(34,139,34,0.4)"],
+                                    mapbox_style="open-street-map",
+                                    opacity=0.4,
+                                )
+                        else:
+                            # Standard overlay rendering for other overlays
+                            overlay_fig = px.choropleth_mapbox(
+                                gdf_overlay,
+                                geojson=gj_overlay,
+                                locations=gdf_overlay.index,
+                                color_discrete_sequence=["rgba(0,0,0,0.3)"],
+                                mapbox_style="open-street-map",
+                                opacity=0.5,
+                            )
+                        
+                        fig.add_trace(overlay_fig.data[0])
+                
+                legend_children = [html.Div("Base map showing Thailand administrative boundaries (Province level).")]
+                store_data = {"metric": "Base", "admin_level": 0}
+                return fig, legend_children, store_data
+            except Exception as e:
+                empty_fig = px.choropleth_mapbox()
+                error_msg = html.Div(f"Error loading base map: {e}", style={"color": "red", "padding": "20px"})
+                return empty_fig, error_msg, {}
+        
         try:
             # Load pre-generated map
             fig_dict = map_store.load_map(metric, int(admin_level))
