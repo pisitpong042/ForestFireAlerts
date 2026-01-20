@@ -45,5 +45,6 @@ Helper programs for Unix:
 
 run\_hourly.sh - checks every hour if there is a new nc file available. If there is, downloads, generates maps, restarts server.
 
-
+Other/analytics:
+print_provinces.py takas an NC file, prints values for debugging
 

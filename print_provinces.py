@@ -123,12 +123,14 @@ def main():
         date = os.path.basename(latest).split('_')[0]
 
         # Output CSV header
-        print("Date,Province,FWI")
+        print("Date,Province,Metric,Value")
 
-        # Output FWI for each province
+        # List of metrics to output
+        metrics = ['FWI', 'DC', 'DMC', 'FFMC', 'BUI', 'ISI']
+
+        # Output each metric for each province
         for _, row in gdf.iterrows():
             gid = row['GID']
-            fwi_val = row['FWI']
 
             # Extract province number from GID (format: THA.X_1)
             # THA.1_1 -> TH-1, THA.10_1 -> TH-10, etc.
@@ -139,7 +141,11 @@ def main():
                 # Fallback to full GID if parsing fails
                 province_code = gid
 
-            print(f"{date},{province_code},{fwi_val:.2f}")
+            # Print each metric
+            for metric in metrics:
+                if metric in row.index:
+                    value = row[metric]
+                    print(f"{date},{province_code},{metric},{value:.2f}")
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
