@@ -17,6 +17,7 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 import simplekml
 import tempfile
+import geopandas as gpd
 
 # Import all utilities from fire_utils
 from fire_utils import (
@@ -56,6 +57,39 @@ def build_app(gdfs_by_level: dict,
     app.server.static_folder = 'static'
     app.server.static_url_path = '/static'
     server = app.server  # Flask server for deployment
+
+    def _read_admin_layer(geo_pkg_path: str, level: int) -> gpd.GeoDataFrame:
+        """Read GADM admin layer (1,2,3) and normalize to columns GID/NAME/geometry in EPSG:4326."""
+        assert level in (1, 2, 3)
+        candidates = {
+            1: ["ADM_ADM_1", "ADM_1", "gadm41_THA_1", "tha_adm1"],
+            2: ["ADM_ADM_2", "ADM_2", "gadm41_THA_2", "tha_adm2"],
+            3: ["ADM_ADM_3", "ADM_3", "gadm41_THA_3", "tha_adm3"],
+        }[level]
+
+        gdf = None
+        for lyr in candidates:
+            try:
+                gdf = gpd.read_file(geo_pkg_path, layer=lyr)
+                break
+            except Exception:
+                pass
+        if gdf is None:
+            gdf = gpd.read_file(geo_pkg_path)  # last resort
+
+        name_c = f"NAME_{level}"
+        gid_c  = f"GID_{level}"
+        cols = set(gdf.columns)
+        if name_c not in cols:
+            name_c = next((c for c in gdf.columns if c.startswith("NAME")), None)
+        if gid_c not in cols:
+            gid_c  = next((c for c in gdf.columns if c.startswith("GID")), None)
+        if not name_c or not gid_c:
+            raise ValueError("Could not find NAME_x / GID_x columns in layer")
+
+        gdf = gdf.rename(columns={name_c: "NAME", gid_c: "GID"}).set_geometry("geometry")
+        gdf = gdf.to_crs(4326)
+        return gdf[["GID", "NAME", "geometry"]]
 
     metric_options = [
         {"label": "FWI (Fire Weather Index)", "value": "FWI"},
@@ -102,6 +136,7 @@ def build_app(gdfs_by_level: dict,
                 id="admin",
                 value=1,
                 options=[
+                    {"label": "Base Map", "value": 0},
                     {"label": "Province", "value": 1},
                     {"label": "District", "value": 2},
                     {"label": "Sub-district", "value": 3},
@@ -181,6 +216,48 @@ def build_app(gdfs_by_level: dict,
         Input("overlay", "value"),
     )
     def update_map(metric, admin_level, overlay):
+        if admin_level == 0:
+            try:
+                gdf = _read_admin_layer(gpkg_path, 1)
+                gj = json.loads(gdf.to_json())
+                fig = px.choropleth_mapbox(
+                    gdf,
+                    geojson=gj,
+                    locations="GID",
+                    color_discrete_sequence=["lightblue"],
+                    mapbox_style="open-street-map",
+                    center={"lat": 15.0, "lon": 101.0}, zoom=5,
+                    hover_name="NAME",
+                )
+                fig.update_layout(
+                    margin=dict(l=0, r=0, t=0, b=0),
+                    showlegend=False,
+                    title="Thailand Base Map",
+                )
+                
+                # Add overlay if selected
+                if overlay != "None":
+                    load_overlay(overlay)
+                    gdf_overlay = overlay_gdfs[overlay]
+                    gj_overlay = overlay_geojsons[overlay]
+                    # Add overlay as a choropleth with constant color for transparency
+                    overlay_fig = px.choropleth_mapbox(
+                        gdf_overlay,
+                        geojson=gj_overlay,
+                        locations=gdf_overlay.index,  # Assuming index as locations; adjust if needed
+                        color_discrete_sequence=["rgba(0,0,0,0.3)"],  # Semi-transparent black
+                        mapbox_style="open-street-map",
+                        opacity=0.5,
+                    )
+                    fig.add_trace(overlay_fig.data[0])
+                
+                legend_children = [html.Div("Base map showing Thailand administrative boundaries (Province level).")]
+                return fig, legend_children
+            except Exception as e:
+                empty_fig = px.choropleth_mapbox()
+                error_msg = html.Div(f"Error loading base map: {e}", style={"color": "red", "padding": "20px"})
+                return empty_fig, error_msg
+        
         gdf = gdfs_by_level[int(admin_level)]
         gj = geojson_by_level[int(admin_level)]
         cat_col = f"{metric}_CAT"
