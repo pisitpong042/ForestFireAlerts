@@ -327,7 +327,7 @@ overlay_options = [
     {"label": "Overlay: None", "value": "None"},
     {"label": "Overlay: Protected areas", "value": "protected"},
     {"label": "Overlay: Reserved forests", "value": "reserved"},
-    {"label": "Overlay: Forest groups (14 types)", "value": "forests"},
+    {"label": "Overlay: 14 Forests", "value": "forests"},
 ]
 
 overlay_files = {
