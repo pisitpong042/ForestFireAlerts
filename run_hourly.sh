@@ -9,3 +9,8 @@ if [ $? -eq 2 ]; then
 else
     echo "No new files → nothing to do"
 fi
+#are there too many files? Delete the earliest
+files=(*_00UTC_d03.nc)
+if (( ${#files[@]} > 5 )); then
+  rm -- "${files[0]}"
+fi
