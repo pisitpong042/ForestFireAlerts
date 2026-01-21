@@ -5,6 +5,7 @@
 import os
 import json
 import argparse
+import datetime
 
 from version import __version__
 
@@ -148,7 +149,15 @@ def build_app(maps_dir: str = "./maps",
     
     # Build header with date if available
     date_str = metadata.get("date", "Unknown Date")
-    headline_text = f"Thailand Fire Danger Maps — {date_str}"
+    if date_str != "Unknown Date":
+        try:
+            date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            # Adjust date by adding 1 day to reflect forecast date
+            date_obj = date_obj + datetime.timedelta(days=1)
+            date_2days = date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            pass  # Keep original date_str if parsing fails
+    headline_text = f"Thailand Fire Danger Maps — {date_2days} based on {date_str}"
 
     app.layout = html.Div([
         dcc.Store(id="map-data-store", data={}),

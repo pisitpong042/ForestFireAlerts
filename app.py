@@ -5,6 +5,7 @@
 import os
 import json
 import argparse
+import datetime
 from threading import Thread
 import urllib.request
 
@@ -58,6 +59,12 @@ def build_app(gdfs_by_level: dict,
     app.server.static_url_path = '/static'
     server = app.server  # Flask server for deployment
 
+    # Calculate prediction date by adding 1 day to the date in latest_nc_file
+    date_str = latest_nc_file.split('_')[0]
+    date_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+    prediction_date = date_obj + datetime.timedelta(days=1)
+    prediction_date_str = prediction_date.strftime('%Y-%m-%d')
+
     def _read_admin_layer(geo_pkg_path: str, level: int) -> gpd.GeoDataFrame:
         """Read GADM admin layer (1,2,3) and normalize to columns GID/NAME/geometry in EPSG:4326."""
         assert level in (1, 2, 3)
@@ -109,7 +116,7 @@ def build_app(gdfs_by_level: dict,
         dcc.Store(id="latest-basename", data=os.path.basename(latest_nc_file)),
         html.Div([
             html.H3(
-                os.path.basename(latest_nc_file),
+                "Thailand fire danger prediction for " + prediction_date_str + " based on " + latest_nc_file,
                 id="headline",
                 style={"textAlign": "center", "display": "inline-block", "marginRight": "16px"},
             ),
