@@ -1,17 +1,16 @@
 """
 test_fire_utils_3days.py
 
-Clean test / demo script to:
-1) Compute FWI for all days in a multi-day WRF NetCDF file
+1) Compute FWI (and other indicators) for all days in a multi-day WRF NetCDF file
 2) Sample ALL days to Thai provinces (admin level 1)
 3) Print in CSV format:
 
-    Date,Province,FWI
+    Date,Province,"FWI",FWI
 
-Where Province is formatted as TH-xxx
+Where Province is THA.77_1 or similar
 
 Assumes:
-- fire_utils_3day.py is in the same directory (or in PYTHONPATH)
+- fire_utils_3days.py is in the same directory (or in PYTHONPATH)
 - A GADM GeoPackage for Thailand exists (e.g. gadm41_THA.gpkg)
 
 """
@@ -143,9 +142,11 @@ def read_day_dates(nc_file, n_days, noon_hour=12):
 
 def sample_state_to_provinces(state, geo_pkg_path):
     """
-    For each province, sample FWI at the nearest model grid point to its centroid.
+    For each province, sample all fire indices at the nearest model grid point
+    to its centroid.
 
-    Returns GeoDataFrame with columns: GID, NAME, FWI
+    Returns GeoDataFrame with columns:
+        GID, NAME, FFMC, DMC, DC, ISI, BUI, FWI
     """
 
     gdf = read_admin_layer(geo_pkg_path, level=1)
@@ -155,9 +156,16 @@ def sample_state_to_provinces(state, geo_pkg_path):
     gdf["cent_lat"] = cent.y
     gdf["cent_lon"] = cent.x
 
-    lat = state["lat"]
-    lon = state["lon"]
-    fwi = state["fwi"]
+    # --- extract state fields cleanly ---
+    lat  = state["lat"]
+    lon  = state["lon"]
+
+    ffmc = state["ffmc"]
+    dmc  = state["dmc"]
+    dc   = state["dc"]
+    isi  = state["isi"]
+    bui  = state["bui"]
+    fwi  = state["fwi"]
 
     # KD-tree for fast nearest neighbour search
     try:
@@ -166,7 +174,11 @@ def sample_state_to_provinces(state, geo_pkg_path):
         pts = np.column_stack([lat.ravel(), lon.ravel()])
         tree = cKDTree(pts)
 
-        q = np.column_stack([gdf["cent_lat"].to_numpy(), gdf["cent_lon"].to_numpy()])
+        q = np.column_stack([
+            gdf["cent_lat"].to_numpy(),
+            gdf["cent_lon"].to_numpy(),
+        ])
+
         _, idx = tree.query(q, k=1)
         rr, cc = np.unravel_index(idx, lat.shape)
 
@@ -181,29 +193,17 @@ def sample_state_to_provinces(state, geo_pkg_path):
         rr = np.asarray(rr)
         cc = np.asarray(cc)
 
-    gdf["FWI"] = fwi[rr, cc]
+    # --- sample all indices ---
+    gdf["FFMC"] = ffmc[rr, cc]
+    gdf["DMC"]  = dmc[rr, cc]
+    gdf["DC"]   = dc[rr, cc]
+    gdf["ISI"]  = isi[rr, cc]
+    gdf["BUI"]  = bui[rr, cc]
+    gdf["FWI"]  = fwi[rr, cc]
 
     return gdf.drop(columns=["cent_lat", "cent_lon"])
 
 
-# -----------------------------------------------------------------------------
-# Province code formatter: GID -> TH-xxx
-# -----------------------------------------------------------------------------
-
-def format_province_code(gid):
-    """
-    Convert GADM GID (e.g. 'THA.1_1') into TH-xxx style code.
-
-    This is an approximation: TH-<first numeric part>
-    Example:
-        THA.1_1 -> TH-1
-    """
-    try:
-        base = gid.split(".")[1]
-        num = base.split("_")[0]
-        return f"TH-{num}"
-    except Exception:
-        return "TH-NA"
 
 
 # -----------------------------------------------------------------------------
@@ -243,7 +243,7 @@ if __name__ == "__main__":
     dates = read_day_dates(nc_file, n_days)
 
     # --- CSV header ---
-    print("Date,Province,FWI")
+    print("Date,Province,Measurement,Value")
 
     # --- loop over all days and all provinces ---
     for day in range(n_days):
@@ -252,13 +252,25 @@ if __name__ == "__main__":
         gdf_prov = sample_state_to_provinces(days[day], gadm_file)
 
         for _, row in gdf_prov.iterrows():
-            code = format_province_code(row["GID"])
+            code = row["GID"]
             fwi  = row["FWI"]
+            ffmc = row["FFMC"]
+            dmc  = row["DMC"]
+            dc   = row["DC"]
+            isi  = row["ISI"]
+            bui  = row["BUI"]         
 
             try:
                 fwi_val = float(fwi)
-                print(f"{date},{code},{fwi_val:.2f}")
+                ffmc_val = float(ffmc)
+                dmc_val = float(dmc)
+                dc_val = float(dc)
+                isi_val = float(isi)
+                bui_val = float(bui)
+                print(f"{date},{code},FWI:{fwi_val:.2f},FFMC:{ffmc_val:.2f},DMC:{dmc_val:.2f},DC:{dc_val:.2f},ISI:{isi_val:.2f},BUI:{bui_val:.2f}")
+
             except Exception:
-                print(f"{date},{code},NA")
+                pass
+                #print(f"{date},{code},NA")
 
     print("\nDone.")
