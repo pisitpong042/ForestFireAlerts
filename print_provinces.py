@@ -132,6 +132,7 @@ def main():
         # Output each metric for each province
         for _, row in gdf.iterrows():
             gid = row['GID']
+            province_name = row['NAME']
 
             # Extract province number from GID (format: THA.X_1)
             # THA.1_1 -> TH-1, THA.10_1 -> TH-10, etc.
@@ -148,7 +149,7 @@ def main():
                 if metric in row.index:
                     value = row[metric]
                     values = values+','+metric+':'+str(value)
-            print(f"{d_next},{province_code}{values}")
+            print(f"{d_next},{province_code} {province_name}{values}")
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
