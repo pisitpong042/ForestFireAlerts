@@ -13,6 +13,7 @@ Output is CSV format: Date,Province,FWI
 import os
 import argparse
 import sys
+from datetime import datetime, timedelta
 
 # Import utilities from fire_utils
 from fire_utils import (
@@ -121,7 +122,9 @@ def main():
 
         # Extract date from latest file name (assuming format: YYYY-MM-DD_00UTC_d03.nc)
         date = os.path.basename(latest).split('_')[0]
-
+        # Increment the date because this is a prediction for tomorrow
+        d = datetime.strptime(date, "%Y-%m-%d").date()
+        d_next = d + timedelta(days=1)
         # Output CSV header
         print("Date,Province,Metric,Value")
 
@@ -142,10 +145,12 @@ def main():
                 province_code = gid
 
             # Print each metric
+            values = ""
             for metric in metrics:
                 if metric in row.index:
                     value = row[metric]
-                    print(f"{date},{province_code},{metric},{value:.2f}")
+                    values = values+','+metric+':'+str(value)
+            print(f"{d_next},{province_code}{values}")
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
