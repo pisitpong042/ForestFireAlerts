@@ -125,8 +125,6 @@ def main():
         # Increment the date because this is a prediction for tomorrow
         d = datetime.strptime(date, "%Y-%m-%d").date()
         d_next = d + timedelta(days=1)
-        # Output CSV header
-        print("Date,Province,Metric,Value")
 
         # List of metrics to output
         metrics = ['FWI', 'DC', 'DMC', 'FFMC', 'BUI', 'ISI']
