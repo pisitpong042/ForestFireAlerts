@@ -252,7 +252,19 @@ if __name__ == "__main__":
         gdf_prov = sample_state_to_provinces(days[day], gadm_file)
 
         for _, row in gdf_prov.iterrows():
-            code = row["GID"]
+            gid = row["GID"]
+            province_name = row["NAME"]
+            
+            # Extract province number from GID (format: THA.X_1)
+            # THA.1_1 -> TH-1, THA.10_1 -> TH-10, etc.
+            try:
+                province_num = gid.split('.')[1].split('_')[0]
+                province_code = f"TH-{province_num}"
+            except (IndexError, ValueError):
+                # Fallback to full GID if parsing fails
+                province_code = gid
+            
+            code = f"{province_code}, {province_name}"
             fwi  = row["FWI"]
             ffmc = row["FFMC"]
             dmc  = row["DMC"]
